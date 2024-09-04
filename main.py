@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 import pytz
 
-BOT_VERSION = "0.2.0"
+BOT_VERSION = "0.3.1"
 
 # Pobierz aktualny czas
 TIMEZONE = pytz.timezone("Europe/Warsaw")
@@ -303,10 +303,128 @@ def log_command(interaction: discord.Interaction, success: bool, error_message: 
     
     command_logger.info(log_message)  # command_logger do zapisywania logów komend
 
-# Komenda /konfiguruj
-@bot.tree.command(name='konfiguruj', description='Ustaw kanał, na który będą wysyłane aktualizacje i wybierz klasy do filtrowania.')
-@app_commands.describe(channel='Kanał, na który będą wysyłane aktualizacje', classes='Klasy do uwzględnienia w filtrze (oddzielone przecinkami lub użyj "wszystkie", aby wyłączyć filtr)')
-async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel, classes: str):
+# /konfiguruj
+def load_config():
+    if os.path.exists('config.json'):
+        with open('config.json', 'r') as file:
+            return json.load(file)
+    return {}
+
+def save_config(config):
+    with open('config.json', 'w') as file:
+        json.dump(config, file, indent=4)
+
+config = load_config()
+GUILD_CONFIG = config.get('guilds', {})
+
+class ClassGroupSelect(discord.ui.Select):
+    def __init__(self, classes_by_grade):
+        options = [
+            discord.SelectOption(label="Klasy pierwsze", value="1", description="Wybierz z klas pierwszych"),
+            discord.SelectOption(label="Klasy drugie", value="2", description="Wybierz z klas drugich"),
+            discord.SelectOption(label="Klasy trzecie", value="3", description="Wybierz z klas trzecich"),
+            discord.SelectOption(label="Klasy czwarte", value="4", description="Wybierz z klas czwartych"),
+            discord.SelectOption(label="Klasy piąte", value="5", description="Wybierz z klas piątych"),
+        ]
+        super().__init__(placeholder="Wybierz opcje", min_values=1, max_values=3, options=options)
+        self.classes_by_grade = classes_by_grade
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_grades = self.values
+        all_classes = []
+        for grade in selected_grades:
+            all_classes.extend(self.classes_by_grade.get(grade, []))
+        
+        view = ClassDetailView(all_classes)
+        await interaction.response.edit_message(
+            content="**Wybierz klasy, których zastępstwa będą wysyłane.**",
+            view=view
+        )
+
+class ClassDetailSelect(discord.ui.Select):
+    def __init__(self, classes):
+        options = [discord.SelectOption(label=cls, value=cls) for cls in classes]
+        super().__init__(placeholder="Wybierz opcje", min_values=1, max_values=len(classes), options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_classes = self.values
+        guild_id = str(interaction.guild.id)
+        channel_id = GUILD_CONFIG.get(guild_id, {}).get('channel_id')
+        
+        if guild_id not in GUILD_CONFIG:
+            GUILD_CONFIG[guild_id] = {}
+        GUILD_CONFIG[guild_id]['selected_classes'] = selected_classes
+        save_config(config)
+
+        embed = discord.Embed(title="**Podsumowanie wyborów**", color=0xca4449)
+        if channel_id:
+            channel = interaction.guild.get_channel(int(channel_id))
+            embed.add_field(name="Wybrany kanał:", value=channel.mention if channel else "**Nie znaleziono kanału**")
+        else:
+            embed.add_field(name="Wybrany kanał:", value="Brak")
+
+        classes_summary = ', '.join(f"**{cls}**" for cls in selected_classes) if selected_classes else "**Brak**"
+        classes_summary_footer = ', '.join(f"{cls}" for cls in selected_classes) if selected_classes else "Brak"
+        embed.add_field(name="Wybrane klasy:", value=classes_summary)
+
+        embed.set_footer(text=f"Będziesz otrzymywać zastępstwa tylko dla klas: {classes_summary_footer}.")
+
+        await interaction.response.edit_message(
+            content="",
+            embed=embed,
+            view=None
+        )
+
+class ClassDetailView(discord.ui.View):
+    def __init__(self, classes):
+        super().__init__()
+        self.add_item(ClassDetailSelect(classes))
+
+class ClearFilterButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Wysyłaj wszystkie zastępstwa", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id = str(interaction.guild.id)
+        if guild_id in GUILD_CONFIG:
+            GUILD_CONFIG[guild_id].pop('selected_classes', None)
+            save_config(config)
+
+        embed = discord.Embed(title="Podsumowanie wyborów:", color=0xca4449)
+        if 'channel_id' in GUILD_CONFIG.get(guild_id, {}):
+            channel_id = GUILD_CONFIG[guild_id]['channel_id']
+            channel = interaction.guild.get_channel(int(channel_id))
+            embed.add_field(name="Wybrany kanał:", value=channel.mention if channel else "**Nie znaleziono kanału**")
+        else:
+            embed.add_field(name="Wybrany kanał:", value="**Brak**")
+
+        embed.add_field(name="Wybrane klasy:", value="**Brak**")
+
+        embed.set_footer(text=f"Będziesz otrzymywać zastępstwa wszystkich klas.")
+
+        await interaction.response.edit_message(
+            content="",
+            embed=embed,
+            view=None
+        )
+
+class ClassView(discord.ui.View):
+    def __init__(self, classes_by_grade):
+        super().__init__()
+        self.add_item(ClassGroupSelect(classes_by_grade))
+        self.add_item(ClearFilterButton())
+
+classes_by_grade = {
+    "1": ["1 A", "1 D", "1 F", "1 H"],
+    "2": ["2 A", "2 B", "2 E", "2 F", "2 H", "2 I", "2 J"],
+    "3": ["3 A", "3 B", "3 E", "3 F", "3 H", "3 I", "3 J"],
+    "4": ["4 A", "4 B", "4 E", "4 F", "4 H", "4 I"],
+    "5": ["5 A", "5 B", "5 E", "5 F", "5 H", "5 I"],
+}
+
+@bot.tree.command(name='skonfiguruj', description='Skonfiguruj bota, który będzie informował o aktualizacji zastępstw.')
+@app_commands.describe(channel='Kanał, na który będą wysyłane aktualizacje zastępstw.')
+async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("Nie masz uprawnień do używania tej komendy.")
@@ -319,34 +437,14 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
             return
 
         GUILD_CONFIG.setdefault(str(interaction.guild.id), {})['channel_id'] = str(channel.id)
-        
-        if classes:
-            class_list = [cls.strip() for cls in classes.split(',') if cls.strip()]
-            valid_classes = ["1 A", "1 D", "1 F", "1 H", "2 A", "2 B", "2 E", "2 F", "2 H", "2 I", "2 J", "3 A", "3 B", "3 E", "3 F", "3 H", "3 I", "3 J", "4 A", "4 B", "4 E", "4 F", "4 H", "4 I", "5 A", "5 B", "5 E", "5 F", "5 H", "5 I"]
-            
-            if "wszystkie" in class_list:
-                filtered_classes = []
-            else:
-                filtered_classes = [cls for cls in class_list if cls in valid_classes]
-
-            if not filtered_classes and "wszystkie" not in class_list:
-                await interaction.response.send_message("Proszę użyć prawidłowych typów klas **(np. 2 I, 2 H)** lub użyj **wszystkie**, aby wyłączyć filtrowanie.")
-                log_command(interaction, success=False, error_message="Nieprawidłowe klasy")
-                return
-
-            GUILD_CONFIG.setdefault(str(interaction.guild.id), {})['selected_classes'] = filtered_classes
-        else:
-            GUILD_CONFIG.setdefault(str(interaction.guild.id), {})['selected_classes'] = []
-
         save_config(config)
-        
-        if classes:
-            if "wszystkie" in classes:
-                await interaction.response.send_message(f"Kanał ustawiony na {channel.mention} **bez filtra klas.**")
-            else:
-                await interaction.response.send_message(f"Kanał ustawiony na {channel.mention} z filtrem klas: **{', '.join(filtered_classes)}**")
-        else:
-            await interaction.response.send_message(f"Kanał ustawiony na {channel.mention} **z usuniętym filtrem klas.**")
+
+        view = ClassView(classes_by_grade)
+        await interaction.response.send_message(
+            f"**Teraz możesz ustawić zastępstwa dla danych klas, co oznacza, że bot wyśle Ci na serwer zastępstwa jedynie tych klas, które wybierzesz.**", 
+            view=view,
+            ephemeral=False
+        )
 
         log_command(interaction, success=True)
         
@@ -355,7 +453,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
         await interaction.response.send_message(f"Wystąpił błąd: {str(e)}", ephemeral=True)
         raise
 
-#komenda /zarządzaj
+# /zarządzaj
 @bot.tree.command(name='zarządzaj', description='Dodaj lub usuń serwer z listy dozwolonych serwerów.')
 @app_commands.describe(dodaj_id='ID serwera, który chcesz dodać do listy dozwolonych serwerów.', usun_id='ID serwera, który chcesz usunąć z listy dozwolonych serwerów.')
 async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str = None, usun_id: str = None):
