@@ -9,8 +9,9 @@ import asyncio
 import logging
 from datetime import datetime
 import pytz
+import random
 
-BOT_VERSION = "0.3.1"
+BOT_VERSION = "0.3.6"
 
 # Pobierz aktualny czas
 TIMEZONE = pytz.timezone("Europe/Warsaw")
@@ -88,7 +89,7 @@ if not TOKEN:
     console_logger.error("Brak tokena bota. Ustaw TOKEN w pliku konfiguracyjnym.")
     exit(1)
 GUILD_CONFIG = config.get('guilds', {})
-CHECK_INTERVAL = 60
+CHECK_INTERVAL = 120
 URL = 'https://zastepstwa.zse.bydgoszcz.pl/'
 allowed_users = config.get('allowed_users', [])
 
@@ -180,7 +181,7 @@ def extract_data_from_html(soup, filter_classes):
     if current_title and current_entries:
         entries.append((current_title, current_entries))
 
-    console_logger.info(f"Wyodrębniono {len(entries)} wpisów.")
+    console_logger.info(f"Wyodrębniono {len(entries)} wpis(ów).")
     return additional_info, entries
 
 # Zarządzaj plikiem danych
@@ -221,6 +222,10 @@ async def check_for_updates():
             console_logger.info(f"Sprawdzanie aktualizacji dla serwera {guild_id}.")
 
             soup = fetch_website_content(URL)
+            if soup is None:
+                console_logger.error("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
+                continue 
+
             filter_classes = GUILD_CONFIG.get(str(guild_id), {}).get('selected_classes', [])
             additional_info, current_entries = extract_data_from_html(soup, filter_classes)
             previous_data = manage_data_file(guild_id)
@@ -279,6 +284,9 @@ async def check_for_updates():
                 manage_data_file(guild_id, new_data)
             else:
                 console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
+
+            # Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera
+            await asyncio.sleep(random.uniform(10, 15))
 
         await asyncio.sleep(CHECK_INTERVAL)
         
@@ -416,10 +424,10 @@ class ClassView(discord.ui.View):
 
 classes_by_grade = {
     "1": ["1 A", "1 D", "1 F", "1 H"],
-    "2": ["2 A", "2 B", "2 E", "2 F", "2 H", "2 I", "2 J"],
-    "3": ["3 A", "3 B", "3 E", "3 F", "3 H", "3 I", "3 J"],
-    "4": ["4 A", "4 B", "4 E", "4 F", "4 H", "4 I"],
-    "5": ["5 A", "5 B", "5 E", "5 F", "5 H", "5 I"],
+    "2": ["2 A", "2 B", "2 D", "2 E", "2 F", "2 H", "2 I", "2 J"],
+    "3": ["3 A", "3 B", "3 D", "3 E", "3 F", "3 H", "3 I", "3 J"],
+    "4": ["4 A", "4 B", "4 D", "4 E", "4 F", "4 H", "4 I"],
+    "5": ["5 A", "5 B", "5 D", "5 E", "5 F", "5 H", "5 I"],
 }
 
 @bot.tree.command(name='skonfiguruj', description='Skonfiguruj bota, który będzie informował o aktualizacji zastępstw.')
