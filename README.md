@@ -9,7 +9,7 @@ Bot umożliwia administratorom ustawienie dedykowanego kanału, przy pomocy kome
 Administratorzy serwera mogą skonfigurować filtrowanie zastępstw, przy pomocy komendy `/skonfiguruj`. Pozwala to na wysyłanie aktualizacji tylko do określonych grup, co pomaga w znalezieniu swoich zastępstw.
 
 ## Bezpieczeństwo
-Bot, który znajduję się na serwerze, nie będzie działał bez uprzedniego dodania ID serwera do pliku konfiguracyjnego bota. Taką czynność mogą dokonać osoby za pomocą komendy '/zarządzaj'', których ID zostało wcześniej umieszczone własnoręcznie w pliku konfiguracyjnym bota przez administratora kodu. Takie działanie ma zapewnić bezpieczeństwo, niezawodność oraz zapobiegać przeciążeniom bota.
+Bot, który znajduję się na serwerze, nie będzie działał bez uprzedniego dodania ID serwera do pliku konfiguracyjnego bota. Taką czynność mogą dokonać osoby za pomocą komendy `/zarządzaj`, których ID zostało wcześniej umieszczone własnoręcznie w pliku konfiguracyjnym bota przez administratora kodu. Takie działanie ma zapewnić bezpieczeństwo, niezawodność oraz zapobiegać przeciążeniom bota.
 
 ## Przyjazny interfejs
 Dzięki wykorzystaniu elementów interfejsu użytkownika Discorda, takich jak selektory, bot oferuje intuicyjny sposób konfiguracji oraz przejrzyste i czytelne zastępstwa, które bot umieszcza na wskazanym wcześniej kanale.
