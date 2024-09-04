@@ -89,8 +89,8 @@ if not TOKEN:
     console_logger.error("Brak tokena bota. Ustaw TOKEN w pliku konfiguracyjnym.")
     exit(1)
 GUILD_CONFIG = config.get('guilds', {})
-CHECK_INTERVAL = 120
-URL = 'https://zastepstwa.zse.bydgoszcz.pl/'
+CHECK_INTERVAL = 120 # Czas (w sekundach), jaki bot wyczekuje, by sprawdzić zawartość strony
+URL = 'https://zastepstwa.zse.bydgoszcz.pl/' # link do strony, z której pobierane są zastępstwa
 allowed_users = config.get('allowed_users', [])
 
 intents = discord.Intents.default()
@@ -146,6 +146,7 @@ def extract_data_from_html(soup, filter_classes):
     for row in rows:
         cells = row.find_all('td')
 
+        # W przypadku strony z zastępstwami w mojej szkole nauczyciel, za którego są zastępstwa, jest w komórce z kolorem (#69AADE), więc kiedy bot wykryje ową komórkę, to wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji.
         if len(cells) == 1:
             cell = cells[0]
             if cell.get('bgcolor') == '#69AADE':
@@ -221,6 +222,7 @@ async def check_for_updates():
 
             console_logger.info(f"Sprawdzanie aktualizacji dla serwera {guild_id}.")
 
+            # kiedy strona nie odpowiada, to bot pomija aktualizację, aby nie doszło do nadpisania pliku previous_data.json na pustą zawartość.
             soup = fetch_website_content(URL)
             if soup is None:
                 console_logger.error("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
@@ -285,7 +287,7 @@ async def check_for_updates():
             else:
                 console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
 
-            # Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera
+            # Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera, co poprawia wydajność bota i odciąża stronę zastępstw
             await asyncio.sleep(random.uniform(10, 15))
 
         await asyncio.sleep(CHECK_INTERVAL)
@@ -311,7 +313,7 @@ def log_command(interaction: discord.Interaction, success: bool, error_message: 
     
     command_logger.info(log_message)  # command_logger do zapisywania logów komend
 
-# /konfiguruj
+# /skonfiguruj
 def load_config():
     if os.path.exists('config.json'):
         with open('config.json', 'r') as file:
@@ -422,6 +424,7 @@ class ClassView(discord.ui.View):
         self.add_item(ClassGroupSelect(classes_by_grade))
         self.add_item(ClearFilterButton())
 
+# Tutaj znajdują się klasy, które filtruje bot. Klasy tutaj wprowadzone można ustawić pod własne zapotrzebowania
 classes_by_grade = {
     "1": ["1 A", "1 D", "1 F", "1 H"],
     "2": ["2 A", "2 B", "2 D", "2 E", "2 F", "2 H", "2 I", "2 J"],
