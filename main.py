@@ -11,7 +11,7 @@ from datetime import datetime
 import pytz
 import random
 
-BOT_VERSION = "0.3.6"
+BOT_VERSION = "0.3.7"
 
 # Pobierz aktualny czas
 TIMEZONE = pytz.timezone("Europe/Warsaw")
@@ -240,6 +240,8 @@ async def check_for_updates():
             if additional_info != previous_data.get('additional_info', ''):
                 console_logger.info("Informacje dodatkowe się zmieniły.")
 
+            all_messages_sent = True
+
             if updated_entries or additional_info != previous_data.get('additional_info', ''):
                 console_logger.info("Treść uległa zmianie. Wysyłam nowe aktualizacje.")
 
@@ -253,37 +255,46 @@ async def check_for_updates():
                         console_logger.info("Wiadomość ping została usunięta.")
                     except discord.DiscordException as e:
                         console_logger.error(f"Błąd podczas wysyłania lub usuwania wiadomości ping: {e}")
+                        all_messages_sent = False
 
-                    embed = discord.Embed(
-                        title="Zastępstwa zostały zaktualizowane!",
-                        description=additional_info,
-                        color=0xca4449
-                    )
+                    if all_messages_sent:
+                        embed = discord.Embed(
+                            title="Zastępstwa zostały zaktualizowane!",
+                            description=additional_info,
+                            color=0xca4449
+                        )
 
-                    embed.set_footer(text=f"Czas aktualizacji: {current_time}\nJeżeli widzisz jedynie tę wiadomość, oznacza to, że dla twojej klasy nie ma żadnych zastępstw.")
-                    try:
-                        await channel.send(embed=embed)
-                        console_logger.info("Wiadomość embed z dodatkowymi informacjami wysłana pomyślnie.")
-                    except discord.DiscordException as e:
-                        console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
+                        embed.set_footer(text=f"Czas aktualizacji: {current_time}\nJeżeli widzisz jedynie tę wiadomość, oznacza to, że dla twojej klasy nie ma żadnych zastępstw.")
+                        try:
+                            await channel.send(embed=embed)
+                            console_logger.info("Wiadomość embed z dodatkowymi informacjami wysłana pomyślnie.")
+                        except discord.DiscordException as e:
+                            console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
+                            all_messages_sent = False
 
-                for title, entries in updated_entries:
-                    embed = discord.Embed(
-                        title=title,
-                        description='\n\n'.join(entries),
-                        color=0xca4449
-                    )
+                if all_messages_sent:
+                    for title, entries in updated_entries:
+                        embed = discord.Embed(
+                            title=title,
+                            description='\n\n'.join(entries),
+                            color=0xca4449
+                        )
 
-                    embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w odzielnej wiadomości.")
-                    try:
-                        await channel.send(embed=embed)
-                        console_logger.info("Wiadomość embed wysłana pomyślnie.")
-                    except discord.DiscordException as e:
-                        console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
+                        embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w odzielnej wiadomości.")
+                        try:
+                            await channel.send(embed=embed)
+                            console_logger.info("Wiadomość embed wysłana pomyślnie.")
+                        except discord.DiscordException as e:
+                            console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
+                            all_messages_sent = False
 
-                new_data = {title: entries for title, entries in current_entries}
-                new_data['additional_info'] = additional_info
-                manage_data_file(guild_id, new_data)
+                if all_messages_sent:
+                    new_data = {title: entries for title, entries in current_entries}
+                    new_data['additional_info'] = additional_info
+                    manage_data_file(guild_id, new_data)
+                else:
+                    console_logger.info("Nie udało się wysłać wszystkich wiadomości. Dane nie zostały zaktualizowane.")
+
             else:
                 console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
 
@@ -465,7 +476,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
         raise
 
 # /zarządzaj
-@bot.tree.command(name='zarządzaj', description='Dodaj lub usuń serwer z listy dozwolonych serwerów.')
+@bot.tree.command(name='zarządzaj', description='Dodaj lub usuń serwer z listy dozwolonych serwerów. (DEVELOPER)')
 @app_commands.describe(dodaj_id='ID serwera, który chcesz dodać do listy dozwolonych serwerów.', usun_id='ID serwera, który chcesz usunąć z listy dozwolonych serwerów.')
 async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str = None, usun_id: str = None):
     try:
