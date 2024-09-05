@@ -59,6 +59,10 @@ command_file_handler.setFormatter(command_file_formatter)
 # Dodanie handlera do command_logger
 command_logger.addHandler(command_file_handler)
 
+# Ustawienia loggera
+console_logger = logging.getLogger('discord')
+console_logger.setLevel(logging.INFO)
+
 # Załaduj konfigurację
 def load_config():
     if not os.path.exists('config.json'):
