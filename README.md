@@ -1,5 +1,5 @@
 # Aktualizacja zastępstw wysyłana na platformie Discord
-Bot na platformie discord wysyła aktualizacje zastępstw udostępnionych przy pomocy [planu lekcji Optivum firmy VULCAN](https://www.vulcan.edu.pl/szkoly-i-przedszkola/oferty-specjalne/organizacja-vulcan#plan). 
+Bot na platformie Discord udostępnia aktualizacje zastępstw widniejących na stronie internetowej szkoły korzystającej z [planu lekcji Optivum firmy VULCAN](https://www.vulcan.edu.pl/szkoly-i-przedszkola/oferty-specjalne/organizacja-vulcan#plan). 
 > Kod bota przystosowany jest do zastępstw [Zepołu Szkół Elektronicznych w Bydgoszczy](https://zastepstwa.zse.bydgoszcz.pl/).
 
 ## Konfiguracja kanału aktualizacji
