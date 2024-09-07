@@ -11,7 +11,7 @@ from datetime import datetime
 import pytz
 import random
 
-BOT_VERSION = "0.3.7"
+BOT_VERSION = "0.4.0"
 
 # Pobierz aktualny czas
 TIMEZONE = pytz.timezone("Europe/Warsaw")
@@ -19,49 +19,38 @@ TIMEZONE = pytz.timezone("Europe/Warsaw")
 def get_current_time():
     return datetime.now(TIMEZONE).strftime('%d-%m-%Y %H:%M:%S')
 
-# Niestandardowy formatter
-class CustomFormatter(logging.Formatter):
-    def formatTime(self, record, datefmt=None):
-        return get_current_time()
+# Konfiguracja loggera (ogólne logi)
+console_logger = logging.getLogger('discord')
+console_logger.setLevel(logging.INFO) 
 
-# Logger do logowania ogólnych informacji (z konsoli)
-console_logger = logging.getLogger('console_logger')
-console_logger.setLevel(logging.INFO)
-
-# Handler dla logów w konsoli
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = CustomFormatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - %(message)s'
-)
-console_handler.setFormatter(console_formatter)
-
-# Dodanie FileHandler dla logów konsolowych do pliku
-file_handler = logging.FileHandler('console_logs.txt', encoding='utf-8')
+# Utworzenie handlera (ogólne logi)
+file_handler = logging.FileHandler('console.log', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
-file_formatter = CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
 
-# Dodanie handlerów do console_logger
-console_logger.addHandler(console_handler)
+# Utworzenie formatera (ogólne logi)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+# Dodanie handlera (ogólne logi)
 console_logger.addHandler(file_handler)
 
-# Logger do logowania komend
-command_logger = logging.getLogger('command_logger')
+# Konfiguracja loggera (komendy)
+command_logger = logging.getLogger('discord.commands')
 command_logger.setLevel(logging.INFO)
 
-# Handler dla logów w pliku komend
-command_file_handler = logging.FileHandler('command_logs.txt', encoding='utf-8')
-command_file_handler.setLevel(logging.INFO)
-command_file_formatter = CustomFormatter('%(asctime)s - %(levelname)s - %(message)s')
-command_file_handler.setFormatter(command_file_formatter)
+# Utworzenie handlera (komendy)
+command_handler = logging.FileHandler('commands.log', encoding='utf-8')
+command_handler.setLevel(logging.INFO)
 
-# Dodanie handlera do command_logger
-command_logger.addHandler(command_file_handler)
+# Utworzenie formatera (komendy)
+command_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+command_handler.setFormatter(command_formatter)
 
-# Ustawienia loggera
-console_logger = logging.getLogger('discord')
-console_logger.setLevel(logging.INFO)
+# Dodanie handlera (komendy)
+command_logger.addHandler(command_handler)
+
+# Wyłączenie propagacji
+command_logger.propagate = False
 
 # Załaduj konfigurację
 def load_config():
@@ -93,8 +82,8 @@ if not TOKEN:
     console_logger.error("Brak tokena bota. Ustaw TOKEN w pliku konfiguracyjnym.")
     exit(1)
 GUILD_CONFIG = config.get('guilds', {})
-CHECK_INTERVAL = 120 # Czas (w sekundach), jaki bot wyczekuje, by sprawdzić zawartość strony
-URL = 'https://zastepstwa.zse.bydgoszcz.pl/' # link do strony, z której pobierane są zastępstwa
+CHECK_INTERVAL = 300 # Czas (w sekundach), jaki bot wyczekuje, by sprawdzić zawartość strony
+URL = 'https://zastepstwa.zse.bydgoszcz.pl/' # Link do strony, z której pobierane są informacje
 allowed_users = config.get('allowed_users', [])
 
 intents = discord.Intents.default()
@@ -108,9 +97,9 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
     
     async def on_ready(self):
-        console_logger.info(f'Bot jest gotowy. Zalogowano jako {self.user.name} ({self.user.id})')
+        console_logger.info(f'Zalogowano jako {self.user.name} ({self.user.id})')
         await self.tree.sync()
-        console_logger.info("Drzewo komend zsynchronizowane.")
+        console_logger.info("komendy zsynchronizowane.")
         self.loop.create_task(check_for_updates())
 
 bot = MyBot()
@@ -121,7 +110,7 @@ def fetch_website_content(url):
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        response.encoding = 'iso-8859-2'
+        response.encoding = 'iso-8859-2' # kodowanie strony, z której pobierane są informacje
         return BeautifulSoup(response.text, 'html.parser')
     except requests.Timeout:
         console_logger.error("Przekroczono czas oczekiwania na połączenie.")
@@ -150,10 +139,9 @@ def extract_data_from_html(soup, filter_classes):
     for row in rows:
         cells = row.find_all('td')
 
-        # W przypadku strony z zastępstwami w mojej szkole nauczyciel, za którego są zastępstwa, jest w komórce z kolorem (#69AADE), więc kiedy bot wykryje ową komórkę, to wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji.
         if len(cells) == 1:
             cell = cells[0]
-            if cell.get('bgcolor') == '#69AADE':
+            if cell.get('bgcolor') == '#69AADE': # W przypadku strony z zastępstwami w mojej szkole nauczyciel, za którego są zastępstwa, jest w komórce z kolorem #69AADE, więc kiedy bot wykryje ową komórkę, to wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie VULCAN ustawia kolor tej komórki na #FFDFBF.
                 if current_title and current_entries:
                     entries.append((current_title, current_entries))
                 current_title = cell.get_text(separator='\n', strip=True)
@@ -226,7 +214,7 @@ async def check_for_updates():
 
             console_logger.info(f"Sprawdzanie aktualizacji dla serwera {guild_id}.")
 
-            # kiedy strona nie odpowiada, to bot pomija aktualizację, aby nie doszło do nadpisania pliku previous_data.json na pustą zawartość.
+            # Kiedy strona nie odpowiada, to bot pomija aktualizację, aby nie doszło do nadpisania pliku previous_data_{guild_id}.json na pustą zawartość.
             soup = fetch_website_content(URL)
             if soup is None:
                 console_logger.error("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
@@ -302,7 +290,7 @@ async def check_for_updates():
             else:
                 console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
 
-            # Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera, co poprawia wydajność bota i odciąża stronę zastępstw
+            # Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera, co zmniejsza częstotliwość wysyłanych żądań
             await asyncio.sleep(random.uniform(10, 15))
 
         await asyncio.sleep(CHECK_INTERVAL)
@@ -439,7 +427,7 @@ class ClassView(discord.ui.View):
         self.add_item(ClassGroupSelect(classes_by_grade))
         self.add_item(ClearFilterButton())
 
-# Tutaj znajdują się klasy, które filtruje bot. Klasy tutaj wprowadzone można ustawić pod własne zapotrzebowania
+# Tutaj znajdują się klasy, które filtruje bot. Klasy tutaj wprowadzone można zmienić pod własne zapotrzebowania
 classes_by_grade = {
     "1": ["1 A", "1 D", "1 F", "1 H"],
     "2": ["2 A", "2 B", "2 D", "2 E", "2 F", "2 H", "2 I", "2 J"],
@@ -448,7 +436,7 @@ classes_by_grade = {
     "5": ["5 A", "5 B", "5 D", "5 E", "5 F", "5 H", "5 I"],
 }
 
-@bot.tree.command(name='skonfiguruj', description='Skonfiguruj bota, który będzie informował o aktualizacji zastępstw.')
+@bot.tree.command(name='skonfiguruj', description='Skonfiguruj bota, który będzie informował o aktualizacji zastępstw. (ADMIN ONLY)')
 @app_commands.describe(channel='Kanał, na który będą wysyłane aktualizacje zastępstw.')
 async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
@@ -480,7 +468,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
         raise
 
 # /zarządzaj
-@bot.tree.command(name='zarządzaj', description='Dodaj lub usuń serwer z listy dozwolonych serwerów. (DEVELOPER)')
+@bot.tree.command(name='zarządzaj', description='Dodaj lub usuń serwer z listy dozwolonych serwerów. (DEV ONLY)')
 @app_commands.describe(dodaj_id='ID serwera, który chcesz dodać do listy dozwolonych serwerów.', usun_id='ID serwera, który chcesz usunąć z listy dozwolonych serwerów.')
 async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str = None, usun_id: str = None):
     try:
