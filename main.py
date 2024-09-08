@@ -10,8 +10,9 @@ import logging
 from datetime import datetime
 import pytz
 import random
+import hashlib
 
-BOT_VERSION = "0.4.1"
+BOT_VERSION = "0.4.4"
 
 # Pobierz aktualny czas
 TIMEZONE = pytz.timezone("Europe/Warsaw")
@@ -19,16 +20,21 @@ TIMEZONE = pytz.timezone("Europe/Warsaw")
 def get_current_time():
 	return datetime.now(TIMEZONE).strftime('%d-%m-%Y %H:%M:%S')
 
+# Niestandardowy formatter obsługujący strefę czasową
+class TimezoneFormatter(logging.Formatter):
+	def formatTime(self, record, datefmt=None):
+		return get_current_time()
+
 # Konfiguracja loggera (dla ogólnych logów)
 console_logger = logging.getLogger('discord')
-console_logger.setLevel(logging.INFO) 
+console_logger.setLevel(logging.INFO)
 
 # Utworzenie handlera (dla ogólnych logów)
 file_handler = logging.FileHandler('console.log', encoding='utf-8')
 file_handler.setLevel(logging.INFO)
 
-# Utworzenie formatera (dla ogólnych logów)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Utworzenie formatera z obsługą strefy czasowej (dla ogólnych logów)
+formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 
 # Dodanie handlera (dla ogólnych logów)
@@ -42,8 +48,8 @@ command_logger.setLevel(logging.INFO)
 command_handler = logging.FileHandler('commands.log', encoding='utf-8')
 command_handler.setLevel(logging.INFO)
 
-# Utworzenie formatera (dla logów użytych komend)
-command_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Utworzenie formatera z obsługą strefy czasowej (dla logów użytych komend)
+command_formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 command_handler.setFormatter(command_formatter)
 
 # Dodanie handlera (dla logów użytych komend)
@@ -51,6 +57,22 @@ command_logger.addHandler(command_handler)
 
 # Wyłączenie propagacji
 command_logger.propagate = False
+
+# Funkcja do obliczenia hasha treści wiadomości
+def calculate_message_hash(message_content):
+	return hashlib.sha256(message_content.encode('utf-8')).hexdigest()
+
+# Sprawdzenie, czy wiadomość już była wysyłana
+def was_message_already_sent(guild_id, current_message_hash):
+	previous_data = manage_data_file(guild_id)
+	last_message_hash = previous_data.get('last_message_hash', '')
+	return last_message_hash == current_message_hash
+
+# Aktualizacja pliku danych o ostatnio wysłaną wiadomość
+def update_last_message_hash(guild_id, current_message_hash):
+	previous_data = manage_data_file(guild_id)
+	previous_data['last_message_hash'] = current_message_hash
+	manage_data_file(guild_id, previous_data)
 
 # Załaduj konfigurację
 def load_config():
@@ -218,7 +240,7 @@ async def check_for_updates():
 			soup = fetch_website_content(URL)
 			if soup is None:
 				console_logger.error("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
-				continue 
+				continue
 
 			filter_classes = GUILD_CONFIG.get(str(guild_id), {}).get('selected_classes', [])
 			additional_info, current_entries = extract_data_from_html(soup, filter_classes)
@@ -229,66 +251,69 @@ async def check_for_updates():
 				if title not in previous_data or entries != previous_data.get(title, []):
 					updated_entries.append((title, entries))
 
-			if additional_info != previous_data.get('additional_info', ''):
-				console_logger.info("Informacje dodatkowe się zmieniły.")
+			# Generowanie treści wiadomości do wysłania
+			current_message = additional_info + '\n'.join(str(e) for e in updated_entries)
+			current_message_hash = calculate_message_hash(current_message)
 
-			all_messages_sent = True
+			if not was_message_already_sent(guild_id, current_message_hash):
+				if updated_entries or additional_info.strip() != previous_data.get('additional_info', '').strip():
+					console_logger.info("Treść uległa zmianie. Wysyłam nowe aktualizacje.")
 
-			if updated_entries or additional_info != previous_data.get('additional_info', ''):
-				console_logger.info("Treść uległa zmianie. Wysyłam nowe aktualizacje.")
+					all_messages_sent = True
 
-				if additional_info:
-					ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
-					try:
-						ping_msg = await channel.send(ping_message)
-						console_logger.info("Wiadomość ping wysłana pomyślnie.")
-						await asyncio.sleep(2)
-						await ping_msg.delete()
-						console_logger.info("Wiadomość ping została usunięta.")
-					except discord.DiscordException as e:
-						console_logger.error(f"Błąd podczas wysyłania lub usuwania wiadomości ping: {e}")
-						all_messages_sent = False
+					if additional_info:
+						ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
+						try:
+							ping_msg = await channel.send(ping_message)
+							console_logger.info("Wiadomość ping wysłana pomyślnie.")
+							await asyncio.sleep(2)
+							await ping_msg.delete()
+							console_logger.info("Wiadomość ping została usunięta.")
+						except discord.DiscordException as e:
+							console_logger.error(f"Błąd podczas wysyłania lub usuwania wiadomości ping: {e}")
+							all_messages_sent = False
+
+						if all_messages_sent:
+							embed = discord.Embed(
+								title="Zastępstwa zostały zaktualizowane!",
+								description=additional_info,
+								color=0xca4449
+							)
+							embed.set_footer(text=f"Czas aktualizacji: {current_time}\nJeżeli widzisz jedynie tę wiadomość, oznacza to, że dla twojej klasy nie ma żadnych zastępstw.")
+							try:
+								await channel.send(embed=embed)
+								console_logger.info("Wiadomość embed z dodatkowymi informacjami wysłana pomyślnie.")
+							except discord.DiscordException as e:
+								console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
+								all_messages_sent = False
 
 					if all_messages_sent:
-						embed = discord.Embed(
-							title="Zastępstwa zostały zaktualizowane!",
-							description=additional_info,
-							color=0xca4449
-						)
+						for title, entries in updated_entries:
+							embed = discord.Embed(
+								title=title,
+								description='\n\n'.join(entries),
+								color=0xca4449
+							)
+							embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w oddzielnej wiadomości.")
+							try:
+								await channel.send(embed=embed)
+								console_logger.info("Wiadomość embed wysłana pomyślnie.")
+							except discord.DiscordException as e:
+								console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
+								all_messages_sent = False
 
-						embed.set_footer(text=f"Czas aktualizacji: {current_time}\nJeżeli widzisz jedynie tę wiadomość, oznacza to, że dla twojej klasy nie ma żadnych zastępstw.")
-						try:
-							await channel.send(embed=embed)
-							console_logger.info("Wiadomość embed z dodatkowymi informacjami wysłana pomyślnie.")
-						except discord.DiscordException as e:
-							console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
-							all_messages_sent = False
+					if all_messages_sent:
+						update_last_message_hash(guild_id, current_message_hash)
 
-				if all_messages_sent:
-					for title, entries in updated_entries:
-						embed = discord.Embed(
-							title=title,
-							description='\n\n'.join(entries),
-							color=0xca4449
-						)
-
-						embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w odzielnej wiadomości.")
-						try:
-							await channel.send(embed=embed)
-							console_logger.info("Wiadomość embed wysłana pomyślnie.")
-						except discord.DiscordException as e:
-							console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
-							all_messages_sent = False
-
-				if all_messages_sent:
-					new_data = {title: entries for title, entries in current_entries}
-					new_data['additional_info'] = additional_info
-					manage_data_file(guild_id, new_data)
+						new_data = {title: entries for title, entries in current_entries}
+						new_data['additional_info'] = additional_info
+						manage_data_file(guild_id, new_data)
+					else:
+						console_logger.info("Nie udało się wysłać wszystkich wiadomości. Dane nie zostały zaktualizowane.")
 				else:
-					console_logger.info("Nie udało się wysłać wszystkich wiadomości. Dane nie zostały zaktualizowane.")
-
+					console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
 			else:
-				console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
+				console_logger.info("Wiadomość o tej samej treści została już wysłana. Pomijanie wysyłki.")
 
 			# Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera, aby zmniejszyć częstotliwość wysyłanych żądań
 			await asyncio.sleep(random.uniform(10, 15))
@@ -497,22 +522,6 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 		if not guild_id.isdigit():
 			await interaction.response.send_message(f"Podane ID serwera **({guild_id})** jest nieprawidłowe. ID serwera musi składać się wyłącznie z cyfr.")
 			log_command(interaction, success=False, error_message="Nieprawidłowe ID serwera")
-			return
-
-		# Sprawdź, czy ID serwera istnieje
-		try:
-			guild = await bot.fetch_guild(int(guild_id))
-			if not guild:
-				await interaction.response.send_message(f"Serwer o ID **{guild_id}** nie istnieje lub bot nie ma do niego dostępu.")
-				log_command(interaction, success=False, error_message="Serwer nie istnieje")
-				return
-		except discord.NotFound:
-			await interaction.response.send_message(f"Serwer o ID **{guild_id}** nie istnieje.")
-			log_command(interaction, success=False, error_message="Serwer nie istnieje")
-			return
-		except discord.HTTPException as e:
-			await interaction.response.send_message(f"Nie udało się zweryfikować ID serwera: {str(e)}")
-			log_command(interaction, success=False, error_message=f"HTTPException: {str(e)}")
 			return
 
 		# Obsługa dodania ID serwera
