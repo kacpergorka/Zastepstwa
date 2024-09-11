@@ -1,66 +1,77 @@
+# Standardowe biblioteki Pythona
+import json
+import os
+import logging
+import asyncio
+from datetime import datetime
+import random
+import hashlib
+
+# Zewnętrzne biblioteki
 import discord
 from discord.ext import commands
 from discord import app_commands
 import requests
 from bs4 import BeautifulSoup
-import json
-import os
-import asyncio
-import logging
-from datetime import datetime
 import pytz
-import random
-import hashlib
 
-BOT_VERSION = "0.4.4"
+# Stałe
+BOT_VERSION = "0.4.8"
+TIMEZONE = pytz.timezone("Europe/Warsaw")  # Strefa czasowa dla logów
+CHECK_INTERVAL = 300  # Czas (w sekundach) pomiędzy sprawdzaniem aktualizacji
+URL = 'https://zastepstwa.zse.bydgoszcz.pl/'  # URL do pobierania zastępstw
 
-# Czas i strefa czasowa
-TIMEZONE = pytz.timezone("Europe/Warsaw") # Twoja strefa czasowa
+# Konfiguracja logów
+class TimezoneFormatter(logging.Formatter):
+	def formatTime(self, record, datefmt=None):
+		return datetime.now(TIMEZONE).strftime('%d-%m-%Y %H:%M:%S')
+
+# Konfiguracja logowania
+def setup_logging():
+	console_logger = logging.getLogger('discord')
+	command_logger = logging.getLogger('discord.commands')
+	
+	console_handler = logging.FileHandler('console.log', encoding='utf-8')
+	command_handler = logging.FileHandler('commands.log', encoding='utf-8')
+	
+	console_formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+	console_handler.setFormatter(console_formatter)
+	command_handler.setFormatter(console_formatter)
+	
+	console_logger.addHandler(console_handler)
+	command_logger.addHandler(command_handler)
+	console_logger.setLevel(logging.INFO)
+	command_logger.setLevel(logging.INFO)
+
+	console_logger.propagate = False
+	command_logger.propagate = False
+
+	return console_logger, command_logger
+
+console_logger, command_logger = setup_logging()
+
+# Pobieranie aktualnego czasu
 def get_current_time():
 	return datetime.now(TIMEZONE).strftime('%d-%m-%Y %H:%M:%S')
 
-class TimezoneFormatter(logging.Formatter):
-	def formatTime(self, record, datefmt=None):
-		return get_current_time()
-
-console_logger = logging.getLogger('discord')
-console_logger.setLevel(logging.INFO)
-command_logger = logging.getLogger('discord.commands')
-command_logger.setLevel(logging.INFO)
-
-console_handler = logging.FileHandler('console.log', encoding='utf-8')
-console_handler.setLevel(logging.INFO)
-command_handler = logging.FileHandler('commands.log', encoding='utf-8')
-command_handler.setLevel(logging.INFO)
-
-console_formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-command_formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-command_handler.setFormatter(command_formatter)
-
-console_logger.addHandler(console_handler)
-command_logger.addHandler(command_handler)
-
-console_logger.propagate = False
-command_logger.propagate = False
-
-# Funkcje odpowiadające za hash
+# Kalkulacja hashu
 def calculate_hash_from_data(additional_info, entries):
-	hash_input = additional_info.strip()	
+	hash_input = additional_info.strip()
 	for title, entry_list in entries:
 		hash_input += title.strip() + ''.join(entry.strip() for entry in entry_list)
 	return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
 
-# Załadowanie konfiguracji
+# Obsługa konfiguracji
 def load_config():
 	if not os.path.exists('config.json'):
 		console_logger.error('Brak pliku konfiguracyjnego.')
 		exit(1)
+	
 	try:
-		with open('config.json') as f:
-			config = json.load(f)
+		with open('config.json', 'r') as file:
+			config = json.load(file)
 			for guild_id in config.get('allowed_guilds', []):
-				config.setdefault('guilds', {})[str(guild_id)] = config.get('guilds', {}).get(str(guild_id), {'channel_id': None, 'selected_classes': []})
+				config.setdefault('guilds', {}).setdefault(str(guild_id), {'channel_id': None, 'selected_classes': []})
 			return config
 	except json.JSONDecodeError as e:
 		console_logger.error(f"Błąd podczas wczytywania pliku konfiguracyjnego: {e}")
@@ -74,41 +85,13 @@ def save_config(config):
 	except IOError as e:
 		console_logger.error(f"Błąd podczas zapisywania pliku konfiguracyjnego: {e}")
 
-config = load_config()
-TOKEN = config.get('token')
-if not TOKEN:
-	console_logger.error("Brak tokena bota. Ustaw TOKEN w pliku konfiguracyjnym.")
-	exit(1)
-GUILD_CONFIG = config.get('guilds', {})
-CHECK_INTERVAL = 300 # Czas (w sekundach), jaki bot wyczekuje, by pobrać zawartość strony
-URL = 'https://zastepstwa.zse.bydgoszcz.pl/' # link do strony, z której pobierane są informacje
-allowed_users = config.get('allowed_users', [])
-
-intents = discord.Intents.default()
-intents.message_content = False
-intents.guilds = True
-intents.messages = False
-
-# Klasa bota
-class BOT(commands.Bot):
-	def __init__(self):
-		super().__init__(command_prefix="!", intents=intents)
-	
-	async def on_ready(self):
-		console_logger.info(f'Zalogowano jako {self.user.name} ({self.user.id})')
-		await self.tree.sync()
-		console_logger.info("komendy zsynchronizowane.")
-		self.loop.create_task(check_for_updates())
-
-bot = BOT()
-
-# Pobieranie zawartości witryny
+# Pobieranie i przetwarzanie danych z witryny
 def fetch_website_content(url):
 	console_logger.info(f"Pobieranie URL: {url}")
 	try:
 		response = requests.get(url, timeout=10)
 		response.raise_for_status()
-		response.encoding = 'iso-8859-2' # kodowanie strony, z której pobierane są informacje
+		response.encoding = 'iso-8859-2'
 		return BeautifulSoup(response.text, 'html.parser')
 	except requests.Timeout:
 		console_logger.error("Przekroczono czas oczekiwania na połączenie.")
@@ -116,7 +99,6 @@ def fetch_website_content(url):
 		console_logger.error(f"Nie udało się pobrać URL: {e}")
 	return None
 
-# Wyodrębnienie danych z html
 def extract_data_from_html(soup, filter_classes, classes_by_grade):
 	if soup is None:
 		console_logger.error("Brak treści pobranej ze strony.")
@@ -128,6 +110,7 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 		additional_info = ""
 		rows = soup.find_all('tr')
 
+		# Ekstrakcja dodatkowych informacji
 		additional_info_cell = next((cell for row in rows for cell in row.find_all('td') if cell.get('class') == ['st0']), None)
 		if additional_info_cell:
 			additional_info = additional_info_cell.get_text(separator='\n', strip=True)
@@ -139,17 +122,17 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 		for row in rows:
 			cells = row.find_all('td')
 
+			# Sprawdzanie, czy jest to tytuł zastępstwa (a w nim nauczyciel)
 			if len(cells) == 1:
 				cell = cells[0]
-				if cell.get('bgcolor') == '#69AADE': # W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc kiedy bot wykryje ową komórkę, to wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie VULCAN ustawia kolor tej komórki na #FFDFBF.
+				if cell.get('bgcolor') == '#69AADE':
 					if current_title and current_entries:
 						entries.append((current_title, current_entries))
 					current_title = cell.get_text(separator='\n', strip=True)
 					current_entries = []
 					continue
-				if cell.get('class') == ['st0']:
-					continue
 
+			# Wyodrębnianie danych zastępstw
 			if len(cells) == 4:
 				lekcja, opis, zastępca, uwagi = (cell.get_text(strip=True) for cell in cells)
 
@@ -168,7 +151,6 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 					entry_lines.append("**Uwagi:** Brak")
 
 				entry_text = '\n'.join(entry_lines).strip()
-
 				if entry_text:
 					if not filter_classes:
 						current_entries.append(entry_text)
@@ -190,7 +172,7 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 		console_logger.error(f"Błąd podczas przetwarzania HTML: {e}")
 		return "", [], {}
 
-# Zarządzanie plikiem danych
+# Obsługa plików danych
 def manage_data_file(guild_id, data=None):
 	file_path = f'previous_hash_{guild_id}.json'
 	try:
@@ -205,11 +187,23 @@ def manage_data_file(guild_id, data=None):
 	except IOError as e:
 		console_logger.error(f"Błąd podczas operacji na pliku z danymi: {e}")
 		return {}
+	
+# Główna klasa i logika
+class BOT(commands.Bot):
+	def __init__(self):
+		super().__init__(command_prefix="!", intents=discord.Intents.default())
+	
+	async def on_ready(self):
+		console_logger.info(f'Zalogowano jako {self.user.name} ({self.user.id})')
+		await self.tree.sync()
+		console_logger.info("Komendy zsynchronizowane.")
+		self.loop.create_task(check_for_updates())
 
-# Sprawdzanie aktualizacji
+bot = BOT()
+
+# Funkcja sprawdzająca aktualizacje
 async def check_for_updates():
 	await bot.wait_until_ready()
-
 	while not bot.is_closed():
 		current_time = get_current_time()
 		for guild_id_str in config.get('allowed_guilds', []):
@@ -239,18 +233,14 @@ async def check_for_updates():
 				previous_data = manage_data_file(guild_id)
 				current_hash = calculate_hash_from_data(additional_info, current_entries)
 				previous_hash = previous_data.get('hash', '')
-
 				if current_hash != previous_hash:
 					console_logger.info("Treść uległa zmianie. Wysyłam nowe aktualizacje.")
-
 					try:
-						await send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time)
-						
-						new_data = {'hash': current_hash}
-						manage_data_file(guild_id, new_data)
+							await send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time)
+							new_data = {'hash': current_hash}
+							manage_data_file(guild_id, new_data)
 					except discord.DiscordException:
 						console_logger.error("Nie udało się wysłać wszystkich wiadomości, hash nie zostanie zaktualizowany.")
-
 				else:
 					console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
 
@@ -260,6 +250,7 @@ async def check_for_updates():
 
 		await asyncio.sleep(CHECK_INTERVAL)
 
+# Funkcja wysyłająca aktualizacje
 async def send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time):
 	try:
 		last_message = None
@@ -268,7 +259,7 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 			ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
 			ping_msg = await channel.send(ping_message)
 			console_logger.info("Wiadomość ping wysłana pomyślnie.")
-			await asyncio.sleep(2)
+			await asyncio.sleep(5)
 			await ping_msg.delete()
 			console_logger.info("Wiadomość ping została usunięta.")
 
@@ -281,29 +272,30 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 			last_message = await channel.send(embed=embed)
 			console_logger.info("Wiadomość embed z dodatkowymi informacjami wysłana pomyślnie.")
 
-		for title, entries in current_entries:
-			embed = discord.Embed(
-				title=title,
-				description='\n\n'.join(entries),
-				color=0xca4449
-			)
-			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w oddzielnej wiadomości.")
-			last_message = await channel.send(embed=embed)
-			console_logger.info("Wiadomość embed wysłana pomyślnie.")
-
 		if no_class_entries_by_teacher:
 			for teacher, entries in no_class_entries_by_teacher.items():
 				embed = discord.Embed(
-					title=f"{teacher} - **Zastępstwa z nieprzypisanymi klasami!**",
+					title=f"**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**",
 					description='\n\n'.join(entries),
 					color=0xca4449
 				)
-				embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w oddzielnej wiadomości.")
+				embed.set_footer(text="Te zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!")
 				last_message = await channel.send(embed=embed)
 				console_logger.info("Wiadomość embed z nieprzypisanymi klasami wysłana pomyślnie.")
 
+		for title, entries in current_entries:
+			embed = discord.Embed(
+				title=f"**{title}**",
+				description='\n\n'.join(entries),
+				color=0xca4449
+			)
+			embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
+			last_message = await channel.send(embed=embed)
+			console_logger.info("Wiadomość embed wysłana pomyślnie.")
+
 		if last_message:
 			await last_message.add_reaction('❤️')
+			console_logger.info("Reakcja dołączona pomyślnie.")
 
 	except discord.DiscordException as e:
 		console_logger.error(f"Błąd podczas wysyłania wiadomości: {e}")
@@ -330,6 +322,7 @@ def log_command(interaction: discord.Interaction, success: bool, error_message: 
 	
 	command_logger.info(log_message)
 
+# Komendy bota
 # /skonfiguruj
 def load_config():
 	if os.path.exists('config.json'):
@@ -543,4 +536,12 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 		raise
 
 # Uruchomienie bota
+config = load_config()
+TOKEN = config.get('token')
+if not TOKEN:
+	console_logger.error("Brak tokena bota. Ustaw TOKEN w pliku konfiguracyjnym.")
+	exit(1)
+GUILD_CONFIG = config.get('guilds', {})
+allowed_users = config.get('allowed_users', [])
+
 bot.run(TOKEN)
