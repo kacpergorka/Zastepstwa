@@ -45,25 +45,17 @@ console_logger.propagate = False
 command_logger.propagate = False
 
 # Funkcje odpowiadające za hash
-def calculate_message_hash(message_content):
-	return hashlib.sha256(message_content.encode('utf-8')).hexdigest()
-
-def was_message_already_sent(guild_id, current_message_hash):
-	previous_data = manage_data_file(guild_id)
-	last_message_hash = previous_data.get('last_message_hash', '')
-	return last_message_hash == current_message_hash
-
-def update_last_message_hash(guild_id, current_message_hash):
-	previous_data = manage_data_file(guild_id)
-	previous_data['last_message_hash'] = current_message_hash
-	manage_data_file(guild_id, previous_data)
+def calculate_hash_from_data(additional_info, entries):
+	hash_input = additional_info.strip()	
+	for title, entry_list in entries:
+		hash_input += title.strip() + ''.join(entry.strip() for entry in entry_list)
+	return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
 
 # Załadowanie konfiguracji
 def load_config():
 	if not os.path.exists('config.json'):
 		console_logger.error('Brak pliku konfiguracyjnego.')
 		exit(1)
-	
 	try:
 		with open('config.json') as f:
 			config = json.load(f)
@@ -125,67 +117,82 @@ def fetch_website_content(url):
 	return None
 
 # Wyodrębnienie danych z html
-def extract_data_from_html(soup, filter_classes):
+def extract_data_from_html(soup, filter_classes, classes_by_grade):
 	if soup is None:
 		console_logger.error("Brak treści pobranej ze strony.")
-		return "", []
+		return "", [], {}
 
-	console_logger.info("Ekstrakcja informacji z HTML.")
-	entries = []
-	additional_info = ""
-	rows = soup.find_all('tr')
+	try:
+		console_logger.info("Ekstrakcja informacji z HTML.")
+		entries = []
+		additional_info = ""
+		rows = soup.find_all('tr')
 
-	additional_info_cell = next((cell for row in rows for cell in row.find_all('td') if cell.get('class') == ['st0']), None)
-	if additional_info_cell:
-		additional_info = additional_info_cell.get_text(separator='\n', strip=True)
+		additional_info_cell = next((cell for row in rows for cell in row.find_all('td') if cell.get('class') == ['st0']), None)
+		if additional_info_cell:
+			additional_info = additional_info_cell.get_text(separator='\n', strip=True)
 
-	current_title = None
-	current_entries = []
+		current_title = None
+		current_entries = []
+		no_class_entries_by_teacher = {}
 
-	for row in rows:
-		cells = row.find_all('td')
+		for row in rows:
+			cells = row.find_all('td')
 
-		if len(cells) == 1:
-			cell = cells[0]
-			if cell.get('bgcolor') == '#69AADE': # W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc kiedy bot wykryje ową komórkę, to wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie VULCAN ustawia kolor tej komórki na #FFDFBF.
-				if current_title and current_entries:
-					entries.append((current_title, current_entries))
-				current_title = cell.get_text(separator='\n', strip=True)
-				current_entries = []
-				continue
-			if cell.get('class') == ['st0']:
-				continue
+			if len(cells) == 1:
+				cell = cells[0]
+				if cell.get('bgcolor') == '#69AADE': # W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc kiedy bot wykryje ową komórkę, to wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie VULCAN ustawia kolor tej komórki na #FFDFBF.
+					if current_title and current_entries:
+						entries.append((current_title, current_entries))
+					current_title = cell.get_text(separator='\n', strip=True)
+					current_entries = []
+					continue
+				if cell.get('class') == ['st0']:
+					continue
 
-		if len(cells) == 4:
-			lekcja, opis, zastępca, uwagi = (cell.get_text(strip=True) for cell in cells)
+			if len(cells) == 4:
+				lekcja, opis, zastępca, uwagi = (cell.get_text(strip=True) for cell in cells)
 
-			entry_lines = []
-			if lekcja and lekcja != 'lekcja':
-				entry_lines.append(f"**Lekcja:** {lekcja}")
-			if opis and opis != 'opis':
-				entry_lines.append(f"**Opis:** {opis}")
-			if zastępca and zastępca != 'zastępca':
-				entry_lines.append(f"**Zastępca:** {zastępca}")
-			elif len(entry_lines) > 0:
-				entry_lines.append("**Zastępca:** Brak")
-			if uwagi and uwagi != 'uwagi':
-				entry_lines.append(f"**Uwagi:** {uwagi}")
-			elif len(entry_lines) > 0:
-				entry_lines.append("**Uwagi:** Brak")
+				entry_lines = []
+				if lekcja and lekcja != 'lekcja':
+					entry_lines.append(f"**Lekcja:** {lekcja}")
+				if opis and opis != 'opis':
+					entry_lines.append(f"**Opis:** {opis}")
+				if zastępca and zastępca != 'zastępca':
+					entry_lines.append(f"**Zastępca:** {zastępca}")
+				elif len(entry_lines) > 0:
+					entry_lines.append("**Zastępca:** Brak")
+				if uwagi and uwagi != 'uwagi':
+					entry_lines.append(f"**Uwagi:** {uwagi}")
+				elif len(entry_lines) > 0:
+					entry_lines.append("**Uwagi:** Brak")
 
-			entry_text = '\n'.join(entry_lines).strip()
-			if entry_text and (not filter_classes or any(cls in entry_text for cls in filter_classes)):
-				current_entries.append(entry_text)
+				entry_text = '\n'.join(entry_lines).strip()
 
-	if current_title and current_entries:
-		entries.append((current_title, current_entries))
+				if entry_text:
+					if not filter_classes:
+						current_entries.append(entry_text)
+					else:
+						if not any(cls in entry_text for grade_classes in classes_by_grade.values() for cls in grade_classes):
+							if current_title not in no_class_entries_by_teacher:
+								no_class_entries_by_teacher[current_title] = []
+							no_class_entries_by_teacher[current_title].append(entry_text)
+						elif any(cls in entry_text for cls in filter_classes):
+							current_entries.append(entry_text)
 
-	console_logger.info(f"Wyodrębniono {len(entries)} wpis(ów).")
-	return additional_info, entries
+		if current_title and current_entries:
+			entries.append((current_title, current_entries))
+
+		console_logger.info(f"Wyodrębniono {len(entries)} wpis(ów) z przypisanymi klasami.")
+		console_logger.info(f"Wyodrębniono {len(no_class_entries_by_teacher)} wpis(ów) bez przypisanych klas.")
+		return additional_info, entries, no_class_entries_by_teacher
+	except Exception as e:
+		console_logger.error(f"Błąd podczas przetwarzania HTML: {e}")
+		return "", [], {}
 
 # Zarządzanie plikiem danych
 def manage_data_file(guild_id, data=None):
-	file_path = f'previous_data_{guild_id}.json'
+	file_path = f'previous_hash_{guild_id}.json'
 	try:
 		if data is not None:
 			with open(file_path, 'w', encoding='utf-8') as file:
@@ -220,89 +227,88 @@ async def check_for_updates():
 
 			console_logger.info(f"Sprawdzanie aktualizacji dla serwera {guild_id}.")
 
-			# Kiedy strona nie odpowiada, to bot pomija aktualizację, aby nie doszło do nadpisania pliku previous_data_{guild_id}.json na pustą zawartość.
-			soup = fetch_website_content(URL)
-			if soup is None:
-				console_logger.error("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
-				continue
+			try:
+				soup = fetch_website_content(URL)
+				if soup is None:
+					console_logger.error("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
+					continue
 
-			filter_classes = GUILD_CONFIG.get(str(guild_id), {}).get('selected_classes', [])
-			additional_info, current_entries = extract_data_from_html(soup, filter_classes)
-			previous_data = manage_data_file(guild_id)
+				filter_classes = GUILD_CONFIG.get(str(guild_id), {}).get('selected_classes', [])
+				additional_info, current_entries, no_class_entries_by_teacher = extract_data_from_html(soup, filter_classes, classes_by_grade)
 
-			updated_entries = []
-			for title, entries in current_entries:
-				if title not in previous_data or entries != previous_data.get(title, []):
-					updated_entries.append((title, entries))
+				previous_data = manage_data_file(guild_id)
+				current_hash = calculate_hash_from_data(additional_info, current_entries)
+				previous_hash = previous_data.get('hash', '')
 
-			current_message = additional_info + '\n'.join(str(e) for e in updated_entries)
-			current_message_hash = calculate_message_hash(current_message)
-
-			if not was_message_already_sent(guild_id, current_message_hash):
-				if updated_entries or additional_info.strip() != previous_data.get('additional_info', '').strip():
+				if current_hash != previous_hash:
 					console_logger.info("Treść uległa zmianie. Wysyłam nowe aktualizacje.")
 
-					all_messages_sent = True
-
-					if additional_info:
-						ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
-						try:
-							ping_msg = await channel.send(ping_message)
-							console_logger.info("Wiadomość ping wysłana pomyślnie.")
-							await asyncio.sleep(2)
-							await ping_msg.delete()
-							console_logger.info("Wiadomość ping została usunięta.")
-						except discord.DiscordException as e:
-							console_logger.error(f"Błąd podczas wysyłania lub usuwania wiadomości ping: {e}")
-							all_messages_sent = False
-
-						if all_messages_sent:
-							embed = discord.Embed(
-								title="Zastępstwa zostały zaktualizowane!",
-								description=additional_info,
-								color=0xca4449
-							)
-							embed.set_footer(text=f"Czas aktualizacji: {current_time}\nJeżeli widzisz jedynie tę wiadomość, oznacza to, że dla twojej klasy nie ma żadnych zastępstw.")
-							try:
-								await channel.send(embed=embed)
-								console_logger.info("Wiadomość embed z dodatkowymi informacjami wysłana pomyślnie.")
-							except discord.DiscordException as e:
-								console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
-								all_messages_sent = False
-
-					if all_messages_sent:
-						for title, entries in updated_entries:
-							embed = discord.Embed(
-								title=title,
-								description='\n\n'.join(entries),
-								color=0xca4449
-							)
-							embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w oddzielnej wiadomości.")
-							try:
-								await channel.send(embed=embed)
-								console_logger.info("Wiadomość embed wysłana pomyślnie.")
-							except discord.DiscordException as e:
-								console_logger.error(f"Błąd podczas wysyłania embedu: {e}")
-								all_messages_sent = False
-
-					if all_messages_sent:
-						update_last_message_hash(guild_id, current_message_hash)
-
-						new_data = {title: entries for title, entries in current_entries}
-						new_data['additional_info'] = additional_info
+					try:
+						await send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time)
+						
+						new_data = {'hash': current_hash}
 						manage_data_file(guild_id, new_data)
-					else:
-						console_logger.info("Nie udało się wysłać wszystkich wiadomości. Dane nie zostały zaktualizowane.")
+					except discord.DiscordException:
+						console_logger.error("Nie udało się wysłać wszystkich wiadomości, hash nie zostanie zaktualizowany.")
+
 				else:
 					console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
-			else:
-				console_logger.info("Wiadomość o tej samej treści została już wysłana. Pomijanie wysyłki.")
 
-			# Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera, aby zmniejszyć częstotliwość wysyłanych żądań.
-			await asyncio.sleep(random.uniform(10, 15))
+				await asyncio.sleep(random.uniform(10, 15))
+			except Exception as e:
+				console_logger.error(f"Błąd podczas przetwarzania aktualizacji: {e}")
 
 		await asyncio.sleep(CHECK_INTERVAL)
-		
+
+async def send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time):
+	try:
+		last_message = None
+
+		if additional_info:
+			ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
+			ping_msg = await channel.send(ping_message)
+			console_logger.info("Wiadomość ping wysłana pomyślnie.")
+			await asyncio.sleep(2)
+			await ping_msg.delete()
+			console_logger.info("Wiadomość ping została usunięta.")
+
+			embed = discord.Embed(
+				title="**Zastępstwa zostały zaktualizowane!**",
+				description=additional_info,
+				color=0xca4449
+			)
+			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nJeżeli widzisz jedynie tę wiadomość, oznacza to, że dla twojej klasy nie ma żadnych zastępstw.")
+			last_message = await channel.send(embed=embed)
+			console_logger.info("Wiadomość embed z dodatkowymi informacjami wysłana pomyślnie.")
+
+		for title, entries in current_entries:
+			embed = discord.Embed(
+				title=title,
+				description='\n\n'.join(entries),
+				color=0xca4449
+			)
+			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w oddzielnej wiadomości.")
+			last_message = await channel.send(embed=embed)
+			console_logger.info("Wiadomość embed wysłana pomyślnie.")
+
+		if no_class_entries_by_teacher:
+			for teacher, entries in no_class_entries_by_teacher.items():
+				embed = discord.Embed(
+					title=f"{teacher} - **Zastępstwa z nieprzypisanymi klasami!**",
+					description='\n\n'.join(entries),
+					color=0xca4449
+				)
+				embed.set_footer(text=f"Czas aktualizacji: {current_time}\nKażdy nauczyciel, za którego wpisywane są zastępstwa, jest wysyłany w oddzielnej wiadomości.")
+				last_message = await channel.send(embed=embed)
+				console_logger.info("Wiadomość embed z nieprzypisanymi klasami wysłana pomyślnie.")
+
+		if last_message:
+			await last_message.add_reaction('❤️')
+
+	except discord.DiscordException as e:
+		console_logger.error(f"Błąd podczas wysyłania wiadomości: {e}")
+		raise
+
 # Logowanie komend
 def log_command(interaction: discord.Interaction, success: bool, error_message: str = None):
 	user_id = interaction.user.id
