@@ -14,67 +14,51 @@ import hashlib
 
 BOT_VERSION = "0.4.4"
 
-# Pobierz aktualny czas
-TIMEZONE = pytz.timezone("Europe/Warsaw")
-
+# Czas i strefa czasowa
+TIMEZONE = pytz.timezone("Europe/Warsaw") # Twoja strefa czasowa
 def get_current_time():
 	return datetime.now(TIMEZONE).strftime('%d-%m-%Y %H:%M:%S')
 
-# Niestandardowy formatter obsługujący strefę czasową
 class TimezoneFormatter(logging.Formatter):
 	def formatTime(self, record, datefmt=None):
 		return get_current_time()
 
-# Konfiguracja loggera (dla ogólnych logów)
 console_logger = logging.getLogger('discord')
 console_logger.setLevel(logging.INFO)
-
-# Utworzenie handlera (dla ogólnych logów)
-file_handler = logging.FileHandler('console.log', encoding='utf-8')
-file_handler.setLevel(logging.INFO)
-
-# Utworzenie formatera z obsługą strefy czasowej (dla ogólnych logów)
-formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)
-
-# Dodanie handlera (dla ogólnych logów)
-console_logger.addHandler(file_handler)
-
-# Konfiguracja loggera (dla logów użytych komend)
 command_logger = logging.getLogger('discord.commands')
 command_logger.setLevel(logging.INFO)
 
-# Utworzenie handlera (dla logów użytych komend)
+console_handler = logging.FileHandler('console.log', encoding='utf-8')
+console_handler.setLevel(logging.INFO)
 command_handler = logging.FileHandler('commands.log', encoding='utf-8')
 command_handler.setLevel(logging.INFO)
 
-# Utworzenie formatera z obsługą strefy czasowej (dla logów użytych komend)
+console_formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
 command_formatter = TimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 command_handler.setFormatter(command_formatter)
 
-# Dodanie handlera (dla logów użytych komend)
+console_logger.addHandler(console_handler)
 command_logger.addHandler(command_handler)
 
-# Wyłączenie propagacji
+console_logger.propagate = False
 command_logger.propagate = False
 
-# Funkcja do obliczenia hasha treści wiadomości
+# Funkcje odpowiadające za hash
 def calculate_message_hash(message_content):
 	return hashlib.sha256(message_content.encode('utf-8')).hexdigest()
 
-# Sprawdzenie, czy wiadomość już była wysyłana
 def was_message_already_sent(guild_id, current_message_hash):
 	previous_data = manage_data_file(guild_id)
 	last_message_hash = previous_data.get('last_message_hash', '')
 	return last_message_hash == current_message_hash
 
-# Aktualizacja pliku danych o ostatnio wysłaną wiadomość
 def update_last_message_hash(guild_id, current_message_hash):
 	previous_data = manage_data_file(guild_id)
 	previous_data['last_message_hash'] = current_message_hash
 	manage_data_file(guild_id, previous_data)
 
-# Załaduj konfigurację
+# Załadowanie konfiguracji
 def load_config():
 	if not os.path.exists('config.json'):
 		console_logger.error('Brak pliku konfiguracyjnego.')
@@ -90,7 +74,7 @@ def load_config():
 		console_logger.error(f"Błąd podczas wczytywania pliku konfiguracyjnego: {e}")
 		exit(1)
 
-# Zapisz konfigurację
+# Zapisanie konfiguracji
 def save_config(config):
 	try:
 		with open('config.json', 'w') as f:
@@ -126,7 +110,7 @@ class BOT(commands.Bot):
 
 bot = BOT()
 
-# Pobierz zawartość witryny
+# Pobieranie zawartości witryny
 def fetch_website_content(url):
 	console_logger.info(f"Pobieranie URL: {url}")
 	try:
@@ -140,7 +124,7 @@ def fetch_website_content(url):
 		console_logger.error(f"Nie udało się pobrać URL: {e}")
 	return None
 
-# Wyodrębnij dane z html
+# Wyodrębnienie danych z html
 def extract_data_from_html(soup, filter_classes):
 	if soup is None:
 		console_logger.error("Brak treści pobranej ze strony.")
@@ -199,7 +183,7 @@ def extract_data_from_html(soup, filter_classes):
 	console_logger.info(f"Wyodrębniono {len(entries)} wpis(ów).")
 	return additional_info, entries
 
-# Zarządzaj plikiem danych
+# Zarządzanie plikiem danych
 def manage_data_file(guild_id, data=None):
 	file_path = f'previous_data_{guild_id}.json'
 	try:
@@ -215,7 +199,7 @@ def manage_data_file(guild_id, data=None):
 		console_logger.error(f"Błąd podczas operacji na pliku z danymi: {e}")
 		return {}
 
-# Sprawdź aktualizacje
+# Sprawdzanie aktualizacji
 async def check_for_updates():
 	await bot.wait_until_ready()
 
@@ -251,7 +235,6 @@ async def check_for_updates():
 				if title not in previous_data or entries != previous_data.get(title, []):
 					updated_entries.append((title, entries))
 
-			# Generowanie treści wiadomości do wysłania
 			current_message = additional_info + '\n'.join(str(e) for e in updated_entries)
 			current_message_hash = calculate_message_hash(current_message)
 
@@ -315,12 +298,12 @@ async def check_for_updates():
 			else:
 				console_logger.info("Wiadomość o tej samej treści została już wysłana. Pomijanie wysyłki.")
 
-			# Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera, aby zmniejszyć częstotliwość wysyłanych żądań
+			# Wprowadzenie losowego opóźnienia przed sprawdzeniem kolejnego serwera, aby zmniejszyć częstotliwość wysyłanych żądań.
 			await asyncio.sleep(random.uniform(10, 15))
 
 		await asyncio.sleep(CHECK_INTERVAL)
 		
-# Loguj komendy
+# Logowanie komend
 def log_command(interaction: discord.Interaction, success: bool, error_message: str = None):
 	user_id = interaction.user.id
 	guild_id = interaction.guild.id
@@ -339,7 +322,7 @@ def log_command(interaction: discord.Interaction, success: bool, error_message: 
 		f"Komenda wykonana {status}.{error_info}\n"
 	)
 	
-	command_logger.info(log_message)  # command_logger do zapisywania logów komend
+	command_logger.info(log_message)
 
 # /skonfiguruj
 def load_config():
@@ -499,25 +482,25 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 	try:
 		user_id = str(interaction.user.id)
 
-		# Sprawdź, czy użytkownik jest na liście dozwolonych użytkowników
+		# Sprawdza, czy użytkownik jest na liście dozwolonych użytkowników
 		if user_id not in allowed_users:
 			await interaction.response.send_message("Nie masz uprawnień do używania tej komendy.")
 			log_command(interaction, success=False, error_message="Brak uprawnień")
 			return
 
-		# Sprawdź, czy podano obie opcje
+		# Sprawdza, czy podano obie opcje
 		if dodaj_id and usun_id:
 			await interaction.response.send_message("Możesz wybrać tylko jedną z opcji.")
 			log_command(interaction, success=False, error_message="Wybrano obie opcje")
 			return
 
-		# Sprawdź, czy przynajmniej jedna opcja została podana
+		# Sprawdza, czy przynajmniej jedna opcja została podana
 		if not dodaj_id and not usun_id:
 			await interaction.response.send_message("Musisz wybrać jedną z opcji.")
 			log_command(interaction, success=False, error_message="Brak wybranych opcji")
 			return
 
-		# Sprawdź, czy ID serwera to tylko cyfry
+		# Sprawdza, czy ID serwera to tylko cyfry
 		guild_id = dodaj_id or usun_id
 		if not guild_id.isdigit():
 			await interaction.response.send_message(f"Podane ID serwera **({guild_id})** jest nieprawidłowe. ID serwera musi składać się wyłącznie z cyfr.")
@@ -553,5 +536,5 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 		await interaction.response.send_message(f"Wystąpił błąd: {str(e)}", ephemeral=True)
 		raise
 
-# Uruchamia bota
+# Uruchomienie bota
 bot.run(TOKEN)
