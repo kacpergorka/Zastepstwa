@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 import pytz
 
 # Stałe
-BOT_VERSION = "0.4.8"
+BOT_VERSION = "0.5.0"
 TIMEZONE = pytz.timezone("Europe/Warsaw")  # Strefa czasowa dla logów
 CHECK_INTERVAL = 300  # Czas (w sekundach) pomiędzy sprawdzaniem aktualizacji
 URL = 'https://zastepstwa.zse.bydgoszcz.pl/'  # URL do pobierania zastępstw
@@ -40,8 +40,6 @@ def setup_logging():
 	
 	console_logger.addHandler(console_handler)
 	command_logger.addHandler(command_handler)
-	console_logger.setLevel(logging.INFO)
-	command_logger.setLevel(logging.INFO)
 
 	console_logger.propagate = False
 	command_logger.propagate = False
@@ -91,7 +89,7 @@ def fetch_website_content(url):
 	try:
 		response = requests.get(url, timeout=10)
 		response.raise_for_status()
-		response.encoding = 'iso-8859-2'
+		response.encoding = 'iso-8859-2' # Kodowanie strony, z której pobierane są informacje. Jeżeli kodowanie nie będzie zgodne z tym na stronie, to bot będzie niepoprawnie wysyłał zastępstwa!
 		return BeautifulSoup(response.text, 'html.parser')
 	except requests.Timeout:
 		console_logger.error("Przekroczono czas oczekiwania na połączenie.")
@@ -125,11 +123,13 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 			# Sprawdzanie, czy jest to tytuł zastępstwa (a w nim nauczyciel)
 			if len(cells) == 1:
 				cell = cells[0]
-				if cell.get('bgcolor') == '#69AADE':
+				if cell.get('bgcolor') == '#69AADE': # W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc bot wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie ustawiony kolor przez VULCAN to #FFDFBF.
 					if current_title and current_entries:
 						entries.append((current_title, current_entries))
 					current_title = cell.get_text(separator='\n', strip=True)
 					current_entries = []
+					continue
+				if cell.get('class') == ['st0']:
 					continue
 
 			# Wyodrębnianie danych zastępstw
@@ -357,7 +357,7 @@ class ClassGroupSelect(discord.ui.Select):
 		
 		view = ClassDetailView(all_classes)
 		await interaction.response.edit_message(
-			content="**Wybierz klasy, których zastępstwa będą wysyłane.**",
+			content="**Wybierz klasy, których zastępstwa będą wysyłane:exclamation:**",
 			view=view
 		)
 
@@ -448,12 +448,12 @@ classes_by_grade = {
 async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
 	try:
 		if not interaction.user.guild_permissions.administrator:
-			await interaction.response.send_message("Nie masz uprawnień do używania tej komendy.")
+			await interaction.response.send_message("**Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie administrator:exclamation:**")
 			log_command(interaction, success=False, error_message="Brak uprawnień")
 			return
 
 		if str(interaction.guild.id) not in config.get('allowed_guilds', []):
-			await interaction.response.send_message("Nie masz uprawnień do używania tej komendy na tym serwerze.")
+			await interaction.response.send_message("**Nie masz uprawnień do używania tej komendy na tym serwerze, skontaktuj się z administratorem bota:exclamation:**")
 			log_command(interaction, success=False, error_message="Serwer nie jest dozwolony")
 			return
 
@@ -462,7 +462,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 
 		view = ClassView(classes_by_grade)
 		await interaction.response.send_message(
-			f"**Teraz możesz ustawić zastępstwa dla danych klas, co oznacza, że bot będzie wysyłać Ci na serwer zastępstwa jedynie tych klas, które wybierzesz.**", 
+			f"**Teraz możesz ustawić zastępstwa dla danych klas, co oznacza, że bot będzie wysyłać Ci na serwer zastępstwa jedynie tych klas, które wybierzesz:exclamation:**", 
 			view=view,
 			ephemeral=False
 		)
@@ -483,51 +483,51 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 
 		# Sprawdza, czy użytkownik jest na liście dozwolonych użytkowników
 		if user_id not in allowed_users:
-			await interaction.response.send_message("Nie masz uprawnień do używania tej komendy.")
+			await interaction.response.send_message("**Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie uprawniona osoba:exclamation:**")
 			log_command(interaction, success=False, error_message="Brak uprawnień")
 			return
 
 		# Sprawdza, czy podano obie opcje
 		if dodaj_id and usun_id:
-			await interaction.response.send_message("Możesz wybrać tylko jedną z opcji.")
+			await interaction.response.send_message("**Możesz wybrać tylko jedną z opcji:exclamation:**")
 			log_command(interaction, success=False, error_message="Wybrano obie opcje")
 			return
 
 		# Sprawdza, czy przynajmniej jedna opcja została podana
 		if not dodaj_id and not usun_id:
-			await interaction.response.send_message("Musisz wybrać jedną z opcji.")
+			await interaction.response.send_message("**Musisz wybrać jedną z opcji:exclamation:**")
 			log_command(interaction, success=False, error_message="Brak wybranych opcji")
 			return
 
 		# Sprawdza, czy ID serwera to tylko cyfry
 		guild_id = dodaj_id or usun_id
 		if not guild_id.isdigit():
-			await interaction.response.send_message(f"Podane ID serwera **({guild_id})** jest nieprawidłowe. ID serwera musi składać się wyłącznie z cyfr.")
+			await interaction.response.send_message(f"**Podane ID serwera (`{guild_id}`) jest nieprawidłowe, ID serwera musi składać się wyłącznie z cyfr:exclamation:**")
 			log_command(interaction, success=False, error_message="Nieprawidłowe ID serwera")
 			return
 
 		# Obsługa dodania ID serwera
 		if dodaj_id:
 			if dodaj_id in config.get('allowed_guilds', []):
-				await interaction.response.send_message("Ten serwer jest już na liście dozwolonych serwerów.")
+				await interaction.response.send_message("**Ten serwer jest już na liście dozwolonych serwerów:exclamation:**")
 				log_command(interaction, success=False, error_message="Serwer już dodany")
 			else:
 				config['allowed_guilds'].append(dodaj_id)
 				config['guilds'][dodaj_id] = {'channel_id': None, 'selected_classes': []}
 				save_config(config)
-				await interaction.response.send_message(f"Serwer o ID **{dodaj_id}** został dodany do listy dozwolonych serwerów.")
+				await interaction.response.send_message(f"**Serwer o ID `{dodaj_id}` został dodany do listy dozwolonych serwerów.**")
 				log_command(interaction, success=True)
 
 		# Obsługa usunięcia ID serwera
 		if usun_id:
 			if usun_id not in config.get('allowed_guilds', []):
-				await interaction.response.send_message("Ten serwer nie znajduje się na liście dozwolonych serwerów.")
+				await interaction.response.send_message("**Ten serwer nie znajduje się na liście dozwolonych serwerów:exclamation:**")
 				log_command(interaction, success=False, error_message="Serwer nie znaleziony")
 			else:
 				config['allowed_guilds'].remove(usun_id)
 				config['guilds'].pop(usun_id, None)
 				save_config(config)
-				await interaction.response.send_message(f"Serwer o ID **{usun_id}** został usunięty z listy dozwolonych serwerów.")
+				await interaction.response.send_message(f"**Serwer o ID `{usun_id}` został usunięty z listy dozwolonych serwerów.**")
 				log_command(interaction, success=True)
 
 	except Exception as e:
