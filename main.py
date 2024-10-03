@@ -17,17 +17,17 @@ from bs4 import BeautifulSoup
 import pytz
 
 # Zmienne
-BOT_VERSION = '1.0.0-stable'
+BOT_VERSION = '1.1.0-stable'
 TIMEZONE = pytz.timezone('Europe/Warsaw')  # Strefa czasowa dla logów.
 CHECK_INTERVAL = 300  # Czas (w sekundach) jaki bot wyczekuje, aby ponownie sprawdzić aktualizacje.
 URL = 'https://zastepstwa.zse.bydgoszcz.pl/'  # URL do pobierania zastępstw.
+ENCODING = 'iso-8859-2' # Kodowanie strony, z której pobierane są informacje. Jeżeli kodowanie nie będzie zgodne z tym na stronie, to bot będzie niepoprawnie wysyłał zastępstwa!
+TEACHERS_CELL_COLOR = '#69AADE' # W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc bot wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie ustawiony kolor przez VULCAN to #FFDFBF.
+EMBEDS_COLOR = discord.Color(0xca4449) # Kolor embedów, które wysyła bot.
 BOT_ADMINISTRATORS = f'[Kacper Górka](https://www.instagram.com/kacperekyea/)' # Administratorzy bota oraz ich kontakt. Informacje tutaj wprowadzne będą wyświetlać się w komendzie `/informacje`.
 GITHUB_REPOSITORY = 'https://github.com/kacpergorka/Zastepstwa' # URL do repozytorium GitHuba.
 SHORT_GITHUB_REPOSITORY = 'kacpergorka/zastepstwa' # Skrócona wersja repozytorium GitHuba.
 GITHUB_ISSUES = 'https://github.com/kacpergorka/Zastepstwa/issues' # URL do issues na GitHubie.
-ENCODING = 'iso-8859-2' # Kodowanie strony, z której pobierane są informacje. Jeżeli kodowanie nie będzie zgodne z tym na stronie, to bot będzie niepoprawnie wysyłał zastępstwa!
-TEACHERS_CELL_COLOR = '#69AADE' # W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc bot wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie ustawiony kolor przez VULCAN to #FFDFBF.
-EMBEDS_COLOR = discord.Color(0xca4449) # Kolor embedów, które wysyła bot.
 classes_by_grade = { # Tutaj znajdują się klasy, które filtruje bot. Klasy tutaj wprowadzone można zmienić pod własne zapotrzebowania.
 	'1': ['1 A', '1 D', '1 F', '1 H'],
 	'2': ['2 A', '2 B', '2 D', '2 E', '2 F', '2 H', '2 I', '2 J'],
@@ -115,15 +115,15 @@ def fetch_website_content(url):
 		response.raise_for_status()
 		response.encoding = ENCODING 
 		return BeautifulSoup(response.text, 'html.parser')
-	except requests.Timeout:
-		console_logger.error('Przekroczono czas oczekiwania na połączenie.')
+	except requests.Timeout as e:
+		console_logger.warning(f'Przekroczono czas oczekiwania na połączenie. Więcej informacji: {e}')
 	except requests.RequestException as e:
 		console_logger.error(f'Nie udało się pobrać URL: {e}')
 	return None
 
 def extract_data_from_html(soup, filter_classes, classes_by_grade):
 	if soup is None:
-		console_logger.error('Brak treści pobranej ze strony.')
+		console_logger.warning('Brak treści pobranej ze strony.')
 		return '', [], {}
 
 	try:
@@ -222,9 +222,6 @@ class BOT(commands.Bot):
 		self.start_time = None
 		config = load_config()
 		self.allowed_guilds = config.get('allowed_guilds', [])
-
-	def is_guild_allowed(self, guild_id):
-		return str(guild_id) in self.allowed_guilds
 	
 	async def on_ready(self):
 		console_logger.info(f'Zalogowano jako {self.user.name} ({self.user.id})')
@@ -260,13 +257,13 @@ async def on_guild_join(guild):
 			description=f'**Informacja wstępna:**\nBot został dodany do serwera **{guild.name}**, a z racji, że jesteś jego administratorem, to dostajesz tę wiadomość.\n\n**Ważne informacje:**\nNa początek musisz upewnić się, że serwer, do którego dołączył bot, jest dodany do listy dozwolonych serwerów. W razie wątpliwości czy serwer na takiej liście się znajduje, skontaktuj się z administratorem bota. Wszystkie ważne informacje dotyczące funkcjonalności bota oraz jego administratorów znajdziesz, używając komendy `/informacje`.\n\n> **Jeżeli znajdziesz lub doświadczysz jakiegokolwiek błędu, [utwórz issue]({GITHUB_ISSUES}). Jest to bardzo ważne do prawidłowego funkcjonowania bota!**\n\n**Konfiguracja bota:**\nKonfiguracja bota zaczyna się od utworzenia dedykowanego kanału tekstowego, na który będą wysyłane zastępstwa, a następnie użycia komendy `/skonfiguruj`, gdzie zostaniesz przeprowadzony przez wygodny i prosty konfigurator. W razie jakichkolwiek pytań odsyłam również do issues na GitHubie.',
 			color=EMBEDS_COLOR
 		)
-		embed.set_footer(text='Mam nadzieję, że bot sprawdzi się w codziennym użytkowaniu!')
+		embed.set_footer(text='Mam nadzieję, że bot sprawdzi się w codziennym użytkowaniu! Created with ❤️ by Kacper Górka.')
 
 		try:
 			await admin.send(embed=embed)
 			console_logger.info(f'Wiadomość z instrukcjami została wysłana do {admin.name}, który jest administratorem na serwerze {guild.name}.')
-		except discord.Forbidden:
-			console_logger.error(f'Nie można wysłać wiadomości do {admin.name}, który jest administratorem na serwerze {guild.name}.')
+		except discord.Forbidden as e:
+			console_logger.error(f'Nie można wysłać wiadomości do {admin.name}, który jest administratorem na serwerze {guild.name}. Więcej informacji: {e}')
 
 # Funkcja sprawdzająca aktualizacje
 async def check_for_updates():
@@ -278,12 +275,12 @@ async def check_for_updates():
 			channel_id = GUILD_CONFIG.get(str(guild_id), {}).get('channel_id')
 
 			if not channel_id:
-				console_logger.error(f'Nie ustawiono ID kanału dla serwera {guild_id}.')
+				console_logger.warning(f'Nie ustawiono ID kanału dla serwera {guild_id}.')
 				continue
 
 			channel = bot.get_channel(int(channel_id))
 			if not channel:
-				console_logger.error(f'Nie znaleziono kanału z ID {channel_id} dla serwera {guild_id}.')
+				console_logger.warning(f'Nie znaleziono kanału z ID {channel_id} dla serwera {guild_id}.')
 				continue
 
 			console_logger.info(f'Sprawdzanie aktualizacji dla serwera {guild_id}.')
@@ -291,7 +288,7 @@ async def check_for_updates():
 			try:
 				soup = fetch_website_content(URL)
 				if soup is None:
-					console_logger.error('Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.')
+					console_logger.warning('Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.')
 					continue
 
 				filter_classes = GUILD_CONFIG.get(str(guild_id), {}).get('selected_classes', [])
@@ -322,8 +319,8 @@ async def check_for_updates():
 							'entries_hash': current_entries_hash
 						}
 						manage_data_file(guild_id, new_data)
-					except discord.DiscordException:
-						console_logger.error('Nie udało się wysłać wszystkich wiadomości, hash nie zostanie zaktualizowany.')
+					except discord.DiscordException as e:
+						console_logger.error(f'Nie udało się wysłać wszystkich wiadomości, hash nie zostanie zaktualizowany. Więcej informacji: {e}')
 				else:
 					console_logger.info('Treść się nie zmieniła. Brak nowych aktualizacji.')
 
@@ -336,6 +333,7 @@ async def check_for_updates():
 # Funkcja wysyłająca aktualizacje
 async def send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time):
 	description_for_additional_info = f'{additional_info}\n### Informacja o tej wiadomości:\nTa wiadomość oznacza, że żadne z nowych zastępstw nie dotyczą Twojej klasy lub jedynie dodatkowe informacje zostały zaktualizowane, więc nie dostałeś powiadomienia o tej wiadomości.'
+	description_for_entries = f'\n### Informacja o tej wiadomości:\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!'
 	try:
 		last_message = None
 		if additional_info and not current_entries:
@@ -344,9 +342,20 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 				description=description_for_additional_info,
 				color=EMBEDS_COLOR
 			)
-			embed.set_footer(text=f'Czas aktualizacji: {current_time}')
+			embed.set_footer(text=f'Czas aktualizacji: {current_time}. Created with ❤️ by Kacper Górka.')
 			last_message = await channel.send(embed=embed)
 			console_logger.info('Wiadomość jedynie z dodatkowymi informacjami wysłana pomyślnie.')
+
+			if no_class_entries_by_teacher:
+				for teacher, entries in no_class_entries_by_teacher.items():
+					embed = discord.Embed(
+						title=f'**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**',
+						description='\n\n'.join(entries) + description_for_entries,
+						color=EMBEDS_COLOR
+					)
+					embed.set_footer(text=f'Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.')
+					last_message = await channel.send(embed=embed)
+					console_logger.info('Wiadomość z nieprzypisanymi klasami wysłana pomyślnie.')
 
 		elif additional_info and current_entries:
 			ping_message = '@everyone Zastępstwa zostały zaktualizowane!'
@@ -361,12 +370,11 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 				description=additional_info,
 				color=EMBEDS_COLOR
 			)
-			embed.set_footer(text=f'Czas aktualizacji: {current_time}\nW tej wiadomości znajdują się informacje dodatkowe, które są umieszczane przed zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością.')
+			embed.set_footer(text=f'Czas aktualizacji: {current_time}.\nW tej wiadomości znajdują się informacje dodatkowe, które są umieszczane przed zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością. Created with ❤️ by Kacper Górka.')
 			last_message = await channel.send(embed=embed)
 			console_logger.info('Wiadomość z dodatkowymi informacjami wysłana pomyślnie.')
 
 			if no_class_entries_by_teacher:
-				description_for_entries = f'\n### Informacja o tej wiadomości:\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!'
 				for teacher, entries in no_class_entries_by_teacher.items():
 					embed = discord.Embed(
 						title=f'**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**',
@@ -450,10 +458,17 @@ class ClassGroupSelect(discord.ui.Select):
 			all_classes.extend(self.classes_by_grade.get(grade, []))
 		
 		view = ClassDetailView(all_classes)
-		await interaction.response.edit_message(
-			content='**Teraz wybierz klasy, których zastępstwa mają być wysyłane na wybrany przez ciebie kanał.**',
-			view=view
+		embed = discord.Embed(
+		title='**Dalsza konfiguracja**',
+		description=f'Teraz wybierz klasy, których zastępstwa mają być wysyłane na wybrany przez ciebie kanał.',
+		color=EMBEDS_COLOR
 		)
+		embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Created with ❤️ by Kacper Górka.')
+
+		await interaction.response.edit_message(
+			embed=embed,
+			view=view
+			)
 
 class ClassDetailSelect(discord.ui.Select):
 	def __init__(self, classes):
@@ -470,7 +485,7 @@ class ClassDetailSelect(discord.ui.Select):
 		GUILD_CONFIG[guild_id]['selected_classes'] = selected_classes
 		save_config(config)
 
-		embed = discord.Embed(title='**Podsumowanie Twoich wyborów:**', color=EMBEDS_COLOR)
+		embed = discord.Embed(title='**Podsumowanie Twoich wyborów**', color=EMBEDS_COLOR)
 		if channel_id:
 			channel = interaction.guild.get_channel(int(channel_id))
 			embed.add_field(name='Wybrany kanał:', value=channel.mention if channel else '**Nie znaleziono kanału**')
@@ -478,13 +493,10 @@ class ClassDetailSelect(discord.ui.Select):
 			embed.add_field(name='Wybrany kanał:', value='**Brak**')
 
 		classes_summary = ', '.join(f'**{cls}**' for cls in selected_classes) if selected_classes else '**Brak**'
-		classes_summary_footer = ', '.join(f'{cls}' for cls in selected_classes) if selected_classes else 'Brak'
 		embed.add_field(name='Wybrane klasy:', value=classes_summary)
-
-		embed.set_footer(text=f'Będziesz otrzymywać zastępstwa tylko dla klas: {classes_summary_footer}.')
+		embed.set_footer(text=f'Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Created with ❤️ by Kacper Górka.')
 
 		await interaction.response.edit_message(
-			content='',
 			embed=embed,
 			view=None
 		)
@@ -504,7 +516,7 @@ class ClearFilterButton(discord.ui.Button):
 			GUILD_CONFIG[guild_id].pop('selected_classes', None)
 			save_config(config)
 
-		embed = discord.Embed(title='**Podsumowanie Twoich wyborów:**', color=EMBEDS_COLOR)
+		embed = discord.Embed(title='**Podsumowanie Twoich wyborów**', color=EMBEDS_COLOR)
 		if 'channel_id' in GUILD_CONFIG.get(guild_id, {}):
 			channel_id = GUILD_CONFIG[guild_id]['channel_id']
 			channel = interaction.guild.get_channel(int(channel_id))
@@ -513,11 +525,9 @@ class ClearFilterButton(discord.ui.Button):
 			embed.add_field(name='Wybrany kanał:', value='**Brak**')
 
 		embed.add_field(name='Wybrane klasy:', value='**Brak**')
-
-		embed.set_footer(text=f'Będziesz otrzymywać zastępstwa dla wszystkich klas.')
+		embed.set_footer(text=f'Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Created with ❤️ by Kacper Górka.')
 
 		await interaction.response.edit_message(
-			content='',
 			embed=embed,
 			view=None
 		)
@@ -533,25 +543,44 @@ class ClassView(discord.ui.View):
 async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
 	try:
 		if not interaction.user.guild_permissions.administrator:
-			await interaction.response.send_message('**Nie masz uprawnień do używania tej komendy, komendę tą może użyć wyłącznie administrator serwera.**')
-			log_command(interaction, success=False, error_message='Brak uprawnień')
+			embed = discord.Embed(
+			title='**Polecenie nie zostało wykonane!**',
+			description=f'Nie masz uprawnień do używania tej komendy, komendę tą może użyć wyłącznie administrator serwera.',
+			color=EMBEDS_COLOR
+			)
+			embed.set_footer(text='Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+			await interaction.response.send_message(embed=embed)
+			log_command(interaction, success=False, error_message='Brak uprawnień.')
 			return
 
 		if str(interaction.guild.id) not in config.get('allowed_guilds', []):
-			await interaction.response.send_message('**Nie masz uprawnień do używania tej komendy na tym serwerze, skontaktuj się z administratorem bota.**')
-			log_command(interaction, success=False, error_message='Serwer nie jest dozwolony')
+			embed = discord.Embed(
+			title='**Polecenie nie zostało wykonane!**',
+			description=f'Nie masz uprawnień do używania tej komendy na tym serwerze, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.',
+			color=EMBEDS_COLOR
+			)
+			embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Created with ❤️ by Kacper Górka.')
+
+			await interaction.response.send_message(embed=embed)
+			log_command(interaction, success=False, error_message='Ten serwer nie znajduje się na liście dozwolonych serwerów.')
 			return
 
 		GUILD_CONFIG.setdefault(str(interaction.guild.id), {})['channel_id'] = str(channel.id)
 		save_config(config)
 
 		view = ClassView(classes_by_grade)
-		await interaction.response.send_message(
-			f'**Teraz możesz wybrać, czy chcesz dostawać zastępstwa jedynie dla wybranych klas. Jeżeli tak, wybierz kategorie, gdzie znajdują się klasy, które masz zamiar wybrać. (:exclamation:)**', 
-			view=view,
-			ephemeral=False
+		embed = discord.Embed(
+		title='**Ważna informacja! (:exclamation:)**',
+		description=f'Teraz możesz dokonać wyboru, czy chcesz dostawać zastępstwa jedynie dla wybranych klas. Jeżeli tak, wybierz kategorie, w których znajdują się klasy, które masz zamiar wybrać.',
+		color=EMBEDS_COLOR
 		)
+		embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Created with ❤️ by Kacper Górka.')
 
+		await interaction.response.send_message(
+			embed=embed,
+			view=view
+			)
 		log_command(interaction, success=True)
 		
 	except Exception as e:
@@ -564,55 +593,111 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 @app_commands.describe(dodaj_id='ID serwera, który chcesz dodać do listy dozwolonych serwerów.', usun_id='ID serwera, który chcesz usunąć z listy dozwolonych serwerów.')
 async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str = None, usun_id: str = None):
 	try:
-		user_id = str(interaction.user.id)
-
 		# Sprawdza, czy użytkownik jest na liście dozwolonych użytkowników
-		if user_id not in allowed_users:
-			await interaction.response.send_message('**Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie uprawniona osoba. Jeżeli jesteś administartorem serwera i chcesz skonfigurować bota, użyj komendy `/skonfiguruj`.**')
-			log_command(interaction, success=False, error_message='Brak uprawnień')
+		if str(interaction.user.id) not in allowed_users:
+			embed = discord.Embed(
+			title='**Polecenie nie zostało wykonane!**',
+			description=f'Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie uprawniona osoba. Jeżeli jesteś administartorem serwera i chcesz skonfigurować bota, użyj komendy `/skonfiguruj`.',
+			color=EMBEDS_COLOR
+			)
+			embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+			await interaction.response.send_message(embed=embed)
+			log_command(interaction, success=False, error_message='Brak uprawnień.')
 			return
 
 		# Sprawdza, czy podano obie opcje
 		if dodaj_id and usun_id:
-			await interaction.response.send_message('**Możesz wybrać tylko jedną z opcji.**')
-			log_command(interaction, success=False, error_message='Wybrano obie opcje')
+			embed = discord.Embed(
+			title='**Polecenie nie zostało wykonane!**',
+			description=f'Wykonana operacja jest niepoprawna. Możesz wybrać tylko jedną z obu dostępnych opcji.',
+			color=EMBEDS_COLOR
+			)
+			embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+			await interaction.response.send_message(embed=embed)
+			log_command(interaction, success=False, error_message='Wybrano obie opcje w jednej komendzie.')
 			return
 
 		# Sprawdza, czy przynajmniej jedna opcja została podana
 		if not dodaj_id and not usun_id:
-			await interaction.response.send_message('**Musisz wybrać jedną z opcji.**')
-			log_command(interaction, success=False, error_message='Brak wybranych opcji')
+			embed = discord.Embed(
+			title='**Polecenie nie zostało wykonane!**',
+			description=f'Wykonana operacja jest niepoprawna. Możesz wybrać co najmniej jedną z obu dostępnych opcji.',
+			color=EMBEDS_COLOR
+			)
+			embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+			await interaction.response.send_message(embed=embed)
+			log_command(interaction, success=False, error_message='Nie wybrano żadnej z obu opcji.')
 			return
 
 		# Sprawdza, czy ID serwera to tylko cyfry
 		guild_id = dodaj_id or usun_id
 		if not guild_id.isdigit():
-			await interaction.response.send_message(f'**Podane ID serwera (`{guild_id}`) jest nieprawidłowe, ID serwera musi składać się wyłącznie z cyfr.**')
-			log_command(interaction, success=False, error_message='Nieprawidłowe ID serwera')
+			embed = discord.Embed(
+			title='**Polecenie nie zostało wykonane!**',
+			description=f'Podane ID serwera (`{guild_id}`) jest nieprawidłowe. ID serwera musi składać się wyłącznie z cyfr.',
+			color=EMBEDS_COLOR
+			)
+			embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+			await interaction.response.send_message(embed=embed)
+			log_command(interaction, success=False, error_message='Nieprawidłowe ID serwera.')
 			return
 
 		# Obsługa dodania ID serwera
 		if dodaj_id:
 			if dodaj_id in config.get('allowed_guilds', []):
-				await interaction.response.send_message('**Ten serwer jest już na liście dozwolonych serwerów.**')
-				log_command(interaction, success=False, error_message='Serwer został już dodany')
+				embed = discord.Embed(
+				title='**Polecenie nie zostało wykonane!**',
+				description=f'Wykonana operacja jest niepoprawna. Ten serwer znajduję się już na liście dozwolonych serwerów.',
+				color=EMBEDS_COLOR
+				)
+				embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+				await interaction.response.send_message(embed=embed)
+				log_command(interaction, success=False, error_message='Ten serwer znajduję się już na liście dozwolonych serwerów.')
 			else:
 				config['allowed_guilds'].append(dodaj_id)
 				config['guilds'][dodaj_id] = {'channel_id': None, 'selected_classes': []}
 				save_config(config)
-				await interaction.response.send_message(f'**Serwer o ID `{dodaj_id}` został dodany do listy dozwolonych serwerów.**')
+
+				embed = discord.Embed(
+				title='**Polecenie wykonane pomyślnie!**',
+				description=f'Serwer o ID `{dodaj_id}` został pomyślnie dodany do listy dozwolonych serwerów.',
+				color=EMBEDS_COLOR
+				)
+				embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+				await interaction.response.send_message(embed=embed)
 				log_command(interaction, success=True)
 
 		# Obsługa usunięcia ID serwera
 		if usun_id:
 			if usun_id not in config.get('allowed_guilds', []):
-				await interaction.response.send_message('**Ten serwer nie znajduje się na liście dozwolonych serwerów.**')
-				log_command(interaction, success=False, error_message='Serwer nie został znaleziony')
+				embed = discord.Embed(
+				title='**Polecenie nie zostało wykonane!**',
+				description=f'Wykonana operacja jest niepoprawna. Ten serwer nie znajduje się na liście dozwolonych serwerów.',
+				color=EMBEDS_COLOR
+				)
+				embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+				await interaction.response.send_message(embed=embed)
+				log_command(interaction, success=False, error_message='Ten serwer nie znajduje się na liście dozwolonych serwerów.')
 			else:
 				config['allowed_guilds'].remove(usun_id)
 				config['guilds'].pop(usun_id, None)
 				save_config(config)
-				await interaction.response.send_message(f'**Serwer o ID `{usun_id}` został usunięty z listy dozwolonych serwerów.**')
+
+				embed = discord.Embed(
+				title='**Polecenie wykonane pomyślnie!**',
+				description=f'Serwer o ID `{usun_id}` został pomyślnie usunięty z listy dozwolonych serwerów.',
+				color=EMBEDS_COLOR
+				)
+				embed.set_footer(text='Mam nadzieję, że bot sprawdza się w codziennym użytkowaniu! Aby skontaktować się z administratorem bota, użyj komendy /informacje. Created with ❤️ by Kacper Górka.')
+
+				await interaction.response.send_message(embed=embed)
 				log_command(interaction, success=True)
 
 	except Exception as e:
@@ -620,14 +705,14 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 		await interaction.response.send_message(f'Wystąpił błąd: {str(e)}', ephemeral=True)
 		raise
 
+# /informacje
 @bot.tree.command(name='informacje', description='Wyświetl najważniejsze informacje dotyczące bota.')
 async def informacje(interaction: discord.Interaction):
 	server_count = bot.get_server_count()
 	uptime_message = bot.get_uptime()
-	guild_id = interaction.guild.id
 	try:
 		embed = discord.Embed(
-			title='**Informacje dotyczące bota:**',
+			title='**Informacje dotyczące bota**',
 			description='Otwarto źródłowe oprogramowanie Informujące o aktualizacji zastępstw. Aby skontaktować się z administratorem bota, wystarczy, że klikniesz jednego z nich.',
 			color=EMBEDS_COLOR
 		)
@@ -636,11 +721,11 @@ async def informacje(interaction: discord.Interaction):
 		embed.add_field(name='Administratorzy bota:', value=BOT_ADMINISTRATORS)
 		embed.add_field(name='Ilość serwerów:', value=(f'Bot znajduję się na **{server_count}** serwerach.'))
 		embed.add_field(name='Bot pracuje bez przerwy przez:', value=uptime_message)
-		if bot.is_guild_allowed(guild_id):
+		if str(interaction.guild.id) in config.get('allowed_guilds', []):
 			embed.add_field(name='Czy ten serwer jest dozwolony?', value=(f'Tak, jest.'))
 		else:
 			embed.add_field(name='Czy ten serwer jest dozwolony?', value=(f'Nie, nie jest.'))
-		embed.set_footer(text='Dzięki za zainteresowanie! Orginalne repozytorium GitHub: kacpergorka/zastępstwa')
+		embed.set_footer(text='Dzięki za zainteresowanie! Projekt ten licencjonowany jest na podstawie licencji MIT. Orginalne repozytorium GitHuba: kacpergorka/zastępstwa. Created with ❤️ by Kacper Górka. ')
 
 		await interaction.response.send_message(embed=embed)
 		log_command(interaction, success=True)	
