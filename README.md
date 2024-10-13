@@ -19,5 +19,5 @@ Bot, który znajduję się na serwerze, nie będzie działał bez uprzedniego do
 ### Przyjazny interfejs
 Dzięki wykorzystaniu elementów interfejsu udostępnionych przez Discorda takich jak selektory czy przyciski, bot oferuje intuicyjny sposób konfiguracji oraz przejrzyście i czytelnie sformatowane zastępstwa, które umieszcza na wskazanym wcześniej kanale.
 
-# Licencja projektu
+#
 Ten projekt jest licencjonowany na podstawie [Licencji MIT](./LICENSE).
