@@ -4,7 +4,7 @@
 # Informacje techniczne
 Bot na platformie Discord udostępnia aktualizacje zastępstw, które pobiera ze strony internetowej korzystającej z usługi [Zastępstwa Optivum firmy VULCAN](https://duckduckgo.com/?t=h_&q=Zast%C4%99pstwa+Optivum+firmy+VULCAN&ia=web).
 
-Kod bota został przystosowany dla mniej doświadczonych programistów, którzy chcą go wykorzystać. Wszystkie zmienne na początku kodu utworzone z myślą o łatwej możliwości wprowadzania zmian posiadają dołączony komentarz z dokładnym opisem ich funkcji. Jeżeli wystąpią jakiekolwiek błędy z zakresu poprawnego wysyłania zastępstw, również innych szkół, utwórz issue z dokładnym opisem błędu oraz jeżeli błąd dotyczy innej szkoły, to dołącz link do strony, z której bot pobiera zastępstwa, a postaram się odpowiednio naprawić owe błędy. Wszystkie niezbędne do prawidłowego działania kodu biblioteki znajdują się w pliku `requirements.txt`. Po pobraniu plików z repozytorium GitHuba pierwszą rzeczą, jaką powinieneś zrobić przed uruchomieniem bota, jest zmienienie nazwy pliku `config-pattern.json` na `config.json`, a następnie w tym samym pliku wprowadzenie tokenu bota oraz dodanie ID swojego konta Discord do `"allowed_users"`. Ustawienie dozwolonych serwerów oraz dalsza konfiguracja jest przeznaczona komendom.
+Kod bota został przystosowany dla mniej doświadczonych programistów, którzy chcą go wykorzystać. Wszystkie zmienne na początku kodu utworzone z myślą o łatwej możliwości wprowadzania zmian posiadają dołączony komentarz z dokładnym opisem ich funkcji. Jeżeli wystąpią jakiekolwiek błędy z zakresu poprawnego wysyłania zastępstw, również innych szkół, utwórz issue z dokładnym opisem błędu oraz jeżeli błąd dotyczy innej szkoły, to dołącz link do strony, z której bot pobiera zastępstwa, a postaram się odpowiednio naprawić owe błędy. Wszystkie niezbędne do prawidłowego działania kodu zewnętrzne biblioteki znajdują się w pliku `requirements.txt`. Po pobraniu plików z repozytorium GitHuba pierwszą rzeczą, jaką powinieneś zrobić przed uruchomieniem bota, jest zmienienie nazwy pliku `config-pattern.json` na `config.json`, a następnie w tym samym pliku wprowadzenie tokenu bota oraz dodanie ID swojego konta Discord do `"allowed_users"`. Ustawienie dozwolonych serwerów oraz dalsza konfiguracja jest przeznaczona komendom.
 
 # Najważniejsze funkcje bota
 ### Wybór kanału wysyłanych zastępstw
@@ -18,3 +18,6 @@ Bot, który znajduję się na serwerze, nie będzie działał bez uprzedniego do
 
 ### Przyjazny interfejs
 Dzięki wykorzystaniu elementów interfejsu udostępnionych przez Discorda takich jak selektory czy przyciski, bot oferuje intuicyjny sposób konfiguracji oraz przejrzyście i czytelnie sformatowane zastępstwa, które umieszcza na wskazanym wcześniej kanale.
+
+# Licencja projektu
+Ten projekt jest licencjonowany na podstawie [Licencji MIT](./LICENSE).

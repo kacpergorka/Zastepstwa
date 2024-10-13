@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 import pytz
 
 # Zmienne
-BOT_VERSION = '1.2.0-stable'
+BOT_VERSION = '1.3.0-stable'
 TIMEZONE = pytz.timezone('Europe/Warsaw')	# Strefa czasowa dla logów.
 CHECK_INTERVAL = 300						# Czas (w sekundach) jaki bot wyczekuje, aby ponownie sprawdzić aktualizacje.
 URL = 'https://zastepstwa.zse.bydgoszcz.pl/'# URL do pobierania zastępstw.
@@ -82,6 +82,14 @@ def calculate_hash_from_data(data):
 		for title, entry_list in data:
 			hash_input += title.strip() + ''.join(entry.strip() for entry in entry_list)
 
+	elif isinstance(data, dict):
+		hash_input = ''
+		for key, value in data.items():
+			hash_input += key.strip() + ''.join(entry.strip() for entry in value)
+
+	else:
+		hash_input = str(data)
+
 	return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
 
 # Obsługa konfiguracji
@@ -136,7 +144,14 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 		# Ekstrakcja dodatkowych informacji
 		additional_info_cell = next((cell for row in rows for cell in row.find_all('td') if cell.get('class') == ['st0']), None)
 		if additional_info_cell:
-			additional_info = additional_info_cell.get_text(separator='\n', strip=True)
+			link_tag = additional_info_cell.find('a')
+			if link_tag and link_tag.get('href'):
+				link_text = link_tag.get_text(strip=True)
+				link_url = link_tag['href']
+				additional_info_text = additional_info_cell.get_text(separator='\n', strip=True).replace(link_text, '').strip()
+				additional_info = f"{additional_info_text}\n[{link_text}]({link_url})"
+			else:
+				additional_info = additional_info_cell.get_text(separator='\n', strip=True)
 
 		current_title = None
 		current_entries = []
@@ -257,7 +272,7 @@ async def on_guild_join(guild):
 			description=f'**Informacja wstępna:**\nBot został dodany do serwera **{guild.name}**, a z racji, że jesteś jego administratorem, to dostajesz tę wiadomość.\n\n**Ważne informacje:**\nNa początek musisz upewnić się, że serwer, do którego dołączył bot, jest dodany do listy dozwolonych serwerów. W razie wątpliwości czy serwer na takiej liście się znajduje, skontaktuj się z administratorem bota. Wszystkie ważne informacje dotyczące funkcjonalności bota oraz jego administratorów znajdziesz, używając komendy `/informacje`.\n\n> **Jeżeli znajdziesz lub doświadczysz jakiegokolwiek błędu, [utwórz issue]({GITHUB_ISSUES}). Jest to bardzo ważne dla prawidłowego funkcjonowania bota!**\n\n**Konfiguracja bota:**\nKonfiguracja bota zaczyna się od utworzenia dedykowanego kanału tekstowego, na który będą wysyłane zastępstwa, a następnie użycia komendy `/skonfiguruj`, gdzie zostaniesz przeprowadzony przez wygodny i prosty konfigurator. W razie jakichkolwiek pytań odsyłam również do issues na GitHubie.',
 			color=EMBEDS_COLOR
 		)
-		embed.set_footer(text='Mam nadzieję, że bot sprawdzi się w codziennym użytkowaniu!\nCreated with ❤️ by Kacper Górka.')
+		embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 		try:
 			await admin.send(embed=embed)
@@ -298,25 +313,29 @@ async def check_for_updates():
 
 				current_additional_info_hash = calculate_hash_from_data(additional_info)
 				current_entries_hash = calculate_hash_from_data(current_entries)
-				
+				current_no_class_entries_by_teacher_hash = calculate_hash_from_data(no_class_entries_by_teacher)
+
 				previous_additional_info_hash = previous_data.get('additional_info_hash', '')
 				previous_entries_hash = previous_data.get('entries_hash', '')
+				previous_no_class_entries_by_teacher_hash = previous_data.get('no_class_entries_by_teacher_hash', '')
 
 				additional_info_changed = current_additional_info_hash != previous_additional_info_hash
 				entries_changed = current_entries_hash != previous_entries_hash
+				no_class_entries_by_teacher_changed = current_no_class_entries_by_teacher_hash != previous_no_class_entries_by_teacher_hash
 
-				if additional_info_changed or entries_changed:
+				if additional_info_changed or entries_changed or no_class_entries_by_teacher_changed:
 					console_logger.info('Treść uległa zmianie. Wysyłam nowe aktualizacje.')
 					try:
-						if additional_info_changed and not entries_changed:
-							await send_updates(channel, additional_info, None, no_class_entries_by_teacher, current_time)
+						if additional_info_changed and not entries_changed and not no_class_entries_by_teacher_changed:
+							await send_updates(channel, additional_info, None, None, current_time)
 
-						elif entries_changed:
+						elif entries_changed or no_class_entries_by_teacher_changed:
 							await send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time)
 
 						new_data = {
 							'additional_info_hash': current_additional_info_hash,
-							'entries_hash': current_entries_hash
+							'entries_hash': current_entries_hash,
+							'no_class_entries_by_teacher_hash': current_no_class_entries_by_teacher_hash
 						}
 						manage_data_file(guild_id, new_data)
 					except discord.DiscordException as e:
@@ -332,31 +351,46 @@ async def check_for_updates():
 
 # Funkcja wysyłająca aktualizacje
 async def send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time):
-	description_only_for_additional_info = f'**Dodatkowe informacje zastępstw:**\n{additional_info}\n\n**Informacja o tej wiadomości:**\nŻadne z nowych zastępstw nie dotyczą Twojej klasy lub jedynie dodatkowe informacje zostały zaktualizowane, więc nie dostałeś powiadomienia o tej wiadomości.'
+	description_only_for_additional_info = f'**Dodatkowe informacje zastępstw:**\n{additional_info}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które są umieszczane przed zastępstwami. Tym razem nie znaleziono dla twojej klasy żadnych zastępstw, więc nie dostałeś powiadomienia o tej wiadomości.'
 	description_for_additional_info = f'**Dodatkowe informacje zastępstw:**\n{additional_info}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które są umieszczane przed zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością.'
 	description_for_entries = f'\n### Informacja o tej wiadomości:\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!'
 	try:
 		last_message = None
-		if additional_info and not current_entries:
+		if additional_info and not current_entries and not no_class_entries_by_teacher:
 			embed = discord.Embed(
 				title='**Zastępstwa zostały zaktualizowane!**',
 				description=description_only_for_additional_info,
 				color=EMBEDS_COLOR
 			)
-			embed.set_footer(text=f'Czas aktualizacji: {current_time}\nCreated with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text=f'Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!')
 			last_message = await channel.send(embed=embed)
 			console_logger.info('Wiadomość jedynie z dodatkowymi informacjami wysłana pomyślnie.')
 
-			if no_class_entries_by_teacher:
-				for teacher, entries in no_class_entries_by_teacher.items():
-					embed = discord.Embed(
-						title=f'**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**',
-						description='\n\n'.join(entries) + description_for_entries,
-						color=EMBEDS_COLOR
-					)
-					embed.set_footer(text=f'Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.')
-					last_message = await channel.send(embed=embed)
-					console_logger.info('Wiadomość z nieprzypisanymi klasami wysłana pomyślnie.')
+		elif additional_info and no_class_entries_by_teacher and not current_entries:
+			ping_message = '@everyone Zastępstwa zostały zaktualizowane!'
+			ping_msg = await channel.send(ping_message)
+			console_logger.info('Wiadomość ping wysłana pomyślnie.')
+			await asyncio.sleep(5)
+			await ping_msg.delete()
+			console_logger.info('Wiadomość ping została usunięta.')
+
+			embed = discord.Embed(
+				title='**Zastępstwa zostały zaktualizowane!**',
+				description=description_for_additional_info,
+				color=EMBEDS_COLOR
+			)
+			embed.set_footer(text=f'Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!')
+			last_message = await channel.send(embed=embed)
+			console_logger.info('Wiadomość jedynie z dodatkowymi informacjami wysłana pomyślnie.')	
+			for teacher, entries in no_class_entries_by_teacher.items():
+				embed = discord.Embed(
+					title=f'**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**',
+					description='\n\n'.join(entries) + description_for_entries,
+					color=EMBEDS_COLOR
+				)
+				embed.set_footer(text=f'Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.')
+				last_message = await channel.send(embed=embed)
+				console_logger.info('Wiadomość z nieprzypisanymi klasami wysłana pomyślnie.')
 
 		elif additional_info and current_entries:
 			ping_message = '@everyone Zastępstwa zostały zaktualizowane!'
@@ -371,7 +405,7 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 				description=description_for_additional_info,
 				color=EMBEDS_COLOR
 			)
-			embed.set_footer(text=f'Czas aktualizacji: {current_time}\nCreated with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text=f'Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!')
 			last_message = await channel.send(embed=embed)
 			console_logger.info('Wiadomość z dodatkowymi informacjami wysłana pomyślnie.')
 
@@ -464,7 +498,7 @@ class ClassGroupSelect(discord.ui.Select):
 			description=f'Teraz wybierz klasy, których zastępstwa mają być wysyłane na wybrany przez ciebie kanał.',
 			color=EMBEDS_COLOR
 			)
-		embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+		embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 		await interaction.response.edit_message(
 			embed=embed,
@@ -495,7 +529,7 @@ class ClassDetailSelect(discord.ui.Select):
 
 		classes_summary = ', '.join(f'**{cls}**' for cls in selected_classes) if selected_classes else '**Brak**'
 		embed.add_field(name='Wybrane klasy:', value=classes_summary)
-		embed.set_footer(text=f'Created with ❤️ by Kacper Górka. I hope everything works fine!')
+		embed.set_footer(text=f'Stworzone z ❤️ przez Kacpra Górkę!')
 
 		await interaction.response.edit_message(
 			embed=embed,
@@ -526,7 +560,7 @@ class ClearFilterButton(discord.ui.Button):
 			embed.add_field(name='Wybrany kanał:', value='**Brak**')
 
 		embed.add_field(name='Wybrane klasy:', value='**Wszystkie**')
-		embed.set_footer(text=f'Created with ❤️ by Kacper Górka. I hope everything works fine!')
+		embed.set_footer(text=f'Stworzone z ❤️ przez Kacpra Górkę!')
 
 		await interaction.response.edit_message(
 			embed=embed,
@@ -549,7 +583,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 				description=f'Nie masz uprawnień do używania tej komendy, komendę tą może użyć wyłącznie administrator serwera. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.',
 				color=EMBEDS_COLOR
 				)
-			embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 			await interaction.response.send_message(embed=embed)
 			log_command(interaction, success=False, error_message='Brak uprawnień.')
@@ -561,7 +595,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 				description=f'Nie masz uprawnień do używania tej komendy na tym serwerze, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.',
 				color=EMBEDS_COLOR
 				)
-			embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 			await interaction.response.send_message(embed=embed)
 			log_command(interaction, success=False, error_message='Ten serwer nie znajduje się na liście dozwolonych serwerów.')
@@ -576,7 +610,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 			description=f'Teraz musisz dokonać wyboru, czy chcesz dostawać zastępstwa dla wszystkich klas, czy może dla klas wybranych przez Ciebie. Jeżeli postanowiłeś, że chcesz wybrać niestandardowe klasy, wybierz kategorie z ich przedziałem, w przeciwnym razie naciśnij przycisk.',
 			color=EMBEDS_COLOR
 			)
-		embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+		embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 		await interaction.response.send_message(
 			embed=embed,
@@ -601,7 +635,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 				description=f'Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie uprawniona osoba. Jeżeli jesteś administartorem serwera i chcesz skonfigurować bota, użyj komendy `/skonfiguruj`. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.',
 				color=EMBEDS_COLOR
 				)
-			embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 			await interaction.response.send_message(embed=embed)
 			log_command(interaction, success=False, error_message='Brak uprawnień.')
@@ -614,7 +648,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 				description=f'Wykonana operacja jest niepoprawna. Możesz wybrać tylko jedną z obu dostępnych opcji.',
 				color=EMBEDS_COLOR
 				)
-			embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 			await interaction.response.send_message(embed=embed)
 			log_command(interaction, success=False, error_message='Wybrano obie opcje w jednej komendzie.')
@@ -627,7 +661,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 				description=f'Wykonana operacja jest niepoprawna. Musisz wybrać co najmniej jedną z obu dostępnych opcji.',
 				color=EMBEDS_COLOR
 				)
-			embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 			await interaction.response.send_message(embed=embed)
 			log_command(interaction, success=False, error_message='Nie wybrano żadnej z obu opcji.')
@@ -641,7 +675,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 				description=f'Podane ID serwera (`{guild_id}`) jest nieprawidłowe. ID serwera musi składać się wyłącznie z cyfr.',
 				color=EMBEDS_COLOR
 				)
-			embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+			embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 			await interaction.response.send_message(embed=embed)
 			log_command(interaction, success=False, error_message='Nieprawidłowe ID serwera.')
@@ -655,7 +689,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 					description=f'Wykonana operacja jest niepoprawna. Ten serwer znajduję się już na liście dozwolonych serwerów.',
 					color=EMBEDS_COLOR
 					)
-				embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+				embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 				await interaction.response.send_message(embed=embed)
 				log_command(interaction, success=False, error_message='Ten serwer znajduję się już na liście dozwolonych serwerów.')
@@ -669,7 +703,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 					description=f'Serwer o ID `{dodaj_id}` został pomyślnie dodany do listy dozwolonych serwerów.',
 					color=EMBEDS_COLOR
 					)
-				embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+				embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 				await interaction.response.send_message(embed=embed)
 				log_command(interaction, success=True)
@@ -682,7 +716,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 					description=f'Wykonana operacja jest niepoprawna. Ten serwer nie znajduje się na liście dozwolonych serwerów.',
 					color=EMBEDS_COLOR
 					)
-				embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+				embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 				await interaction.response.send_message(embed=embed)
 				log_command(interaction, success=False, error_message='Ten serwer nie znajduje się na liście dozwolonych serwerów.')
@@ -696,7 +730,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 					description=f'Serwer o ID `{usun_id}` został pomyślnie usunięty z listy dozwolonych serwerów.',
 					color=EMBEDS_COLOR
 					)
-				embed.set_footer(text='Created with ❤️ by Kacper Górka. I hope everything works fine!')
+				embed.set_footer(text='Stworzone z ❤️ przez Kacpra Górkę!')
 
 				await interaction.response.send_message(embed=embed)
 				log_command(interaction, success=True)
@@ -726,7 +760,7 @@ async def informacje(interaction: discord.Interaction):
 			embed.add_field(name='Czy ten serwer jest dozwolony?', value=(f'Tak, jest.'))
 		else:
 			embed.add_field(name='Czy ten serwer jest dozwolony?', value=(f'Nie, nie jest.'))
-		embed.set_footer(text='Dzięki za zainteresowanie! Projekt ten licencjonowany jest na podstawie licencji MIT.\nCreated with ❤️ by Kacper Górka. I hope everything works fine!')
+		embed.set_footer(text='Projekt ten licencjonowany jest na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!')
 
 		await interaction.response.send_message(embed=embed)
 		log_command(interaction, success=True)	
