@@ -16,25 +16,25 @@ import requests
 from bs4 import BeautifulSoup
 import pytz
 
-# Zmienne
-BOT_VERSION = "1.3.6-stable"
+# Stałe przeznaczone do konfiguracji
+BOT_VERSION = "1.3.7-stable"
 TIMEZONE = pytz.timezone("Europe/Warsaw")	# Strefa czasowa dla logów.
 CHECK_INTERVAL = 300						# Czas (w sekundach) jaki bot wyczekuje, aby ponownie sprawdzić aktualizacje.
 URL = "https://zastepstwa.zse.bydgoszcz.pl/"# URL do pobierania zastępstw.
 ENCODING = "iso-8859-2"						# Kodowanie strony, z której pobierane są informacje. Jeżeli kodowanie nie będzie zgodne z tym na stronie, to bot będzie niepoprawnie wysyłał zastępstwa!
-TEACHERS_CELL_COLOR = "#69AADE"				# W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc bot wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie ustawiony kolor przez VULCAN to #FFDFBF, ale radzę sprawdzić indywidualnie.
+TEACHERS_CELL_COLOR = "#69AADE"				# W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc bot wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie ustawiony kolor przez VULCAN to #FFDFBF, ale zalecam sprawdzenie indywidualne.
 EMBEDS_COLOR = discord.Color(0xca4449)		# Kolor embedów, które wysyła bot.
-BOT_ADMINISTRATORS = f"[Kacper Górka](https://www.instagram.com/kacperekyea/)"	# Administratorzy bota oraz ich kontakt. Informacje tutaj, jak i w niższych zmiennych wprowadzone, będą wyświetlać się w komendzie `/informacje`.
-GITHUB_REPOSITORY = "https://github.com/kacpergorka/Zastepstwa"					# URL do repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ ZMIENNEJ!
-SHORT_GITHUB_REPOSITORY = "kacpergorka/zastepstwa"								# Skrócona wersja repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ ZMIENNEJ!
-GITHUB_ISSUES = "https://github.com/kacpergorka/Zastepstwa/issues"				# URL do issues na GitHubie. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ ZMIENNEJ!
+BOT_ADMINISTRATORS = "[Kacper Górka](https://www.instagram.com/kacperekyea/)"	# Administratorzy bota oraz ich kontakt. Informacje tutaj, jak i w stałych poniżej wprowadzone, będą wyświetlać się po wywołaniu komendy /informacje.
+GITHUB_REPOSITORY = "https://github.com/kacpergorka/Zastepstwa"					# URL do repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ STAŁEJ!
+SHORT_GITHUB_REPOSITORY = "kacpergorka/zastepstwa"								# Skrócona wersja repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ STAŁEJ!
+GITHUB_ISSUES = "https://github.com/kacpergorka/Zastepstwa/issues"				# URL do issues w repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ STAŁEJ!
 classes_by_grade = {
 	"1": ["1 A", "1 D", "1 F", "1 H"],
 	"2": ["2 A", "2 B", "2 D", "2 E", "2 F", "2 H", "2 I", "2 J"],
-	"3": ["3 A", "3 B", "3 D", "3 E", "3 F", "3 H", "3 I", "3 J"],
+	"3": ["3 A", "3 B", "3 D", "3 F", "3 H", "3 I", "3 J"],
 	"4": ["4 A", "4 B", "4 D", "4 E", "4 F", "4 H", "4 I"],
 	"5": ["5 A", "5 B", "5 D", "5 E", "5 F", "5 H", "5 I"]
-	}	# Tutaj znajdują się klasy, które filtruje bot. Klasy tutaj wprowadzone można zmienić pod własne zapotrzebowania.
+	}	# Tutaj znajdują się klasy, które filtruje bot. Klasy powyżej wprowadzone można zmienić pod własne zapotrzebowania.
 
 # Konfiguracja logów
 class TimezoneFormatter(logging.Formatter):
