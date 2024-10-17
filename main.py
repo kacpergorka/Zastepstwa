@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 import pytz
 
 # Zmienne
-BOT_VERSION = "1.3.5-stable"
+BOT_VERSION = "1.3.6-stable"
 TIMEZONE = pytz.timezone("Europe/Warsaw")	# Strefa czasowa dla logów.
 CHECK_INTERVAL = 300						# Czas (w sekundach) jaki bot wyczekuje, aby ponownie sprawdzić aktualizacje.
 URL = "https://zastepstwa.zse.bydgoszcz.pl/"# URL do pobierania zastępstw.
@@ -290,12 +290,13 @@ async def check_for_updates():
 		for guild_id_str in config.get("allowed_guilds", []):
 			guild_id = int(guild_id_str)
 			channel_id = guild_config.get(str(guild_id), {}).get("channel_id")
-			channel = bot.get_channel(int(channel_id))
 			previous_data = manage_data_file(guild_id)
 			
 			if not channel_id:
 				console_logger.warning(f"Nie ustawiono ID kanału dla serwera {guild_id}.")
 				continue
+
+			channel = bot.get_channel(int(channel_id))
 			if not channel:
 				console_logger.warning(f"Nie znaleziono kanału z ID {channel_id} dla serwera {guild_id}.")
 				continue
