@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 import pytz
 
 # Zmienne
-BOT_VERSION = "1.3.1-stable"
+BOT_VERSION = "1.3.5-stable"
 TIMEZONE = pytz.timezone("Europe/Warsaw")	# Strefa czasowa dla logów.
 CHECK_INTERVAL = 300						# Czas (w sekundach) jaki bot wyczekuje, aby ponownie sprawdzić aktualizacje.
 URL = "https://zastepstwa.zse.bydgoszcz.pl/"# URL do pobierania zastępstw.
@@ -97,7 +97,6 @@ def load_config():
 	if not os.path.exists("config.json"):
 		console_logger.error("Brak pliku konfiguracyjnego.")
 		exit(1)
-	
 	try:
 		with open("config.json", "r") as file:
 			config = json.load(file)
@@ -107,6 +106,10 @@ def load_config():
 	except json.JSONDecodeError as e:
 		console_logger.error(f"Błąd podczas wczytywania pliku konfiguracyjnego: {e}")
 		exit(1)
+
+# Zmienne globalne
+config = load_config()
+guild_config = config.get("guilds", {})
 
 # Zapisanie konfiguracji
 def save_config(config):
@@ -136,7 +139,6 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 		return "", [], {}
 
 	try:
-		console_logger.info("Ekstrakcja informacji z HTML.")
 		entries = []
 		additional_info = ""
 		rows = soup.find_all("tr")
@@ -178,8 +180,12 @@ def extract_data_from_html(soup, filter_classes, classes_by_grade):
 				entry_lines = []
 				if lekcja and lekcja != "lekcja":
 					entry_lines.append(f"**Lekcja:** {lekcja}")
+				elif len(entry_lines) > 0:
+					entry_lines.append("**Lekcja:** Brak")
 				if opis and opis != "opis":
 					entry_lines.append(f"**Opis:** {opis}")
+				elif len(entry_lines) > 0:
+					entry_lines.append("**Opis:** Brak")
 				if zastępca and zastępca != "zastępca":
 					entry_lines.append(f"**Zastępca:** {zastępca}")
 				elif len(entry_lines) > 0:
@@ -233,15 +239,12 @@ class BOT(commands.Bot):
 		intents = discord.Intents.default()
 		intents.guilds = True
 		intents.members = True 
-		super().__init__(command_prefix="!", intents=intents)
+		super().__init__(command_prefix="", intents=intents)
 		self.start_time = None
-		config = load_config()
-		self.allowed_guilds = config.get("allowed_guilds", [])
 	
 	async def on_ready(self):
 		console_logger.info(f"Zalogowano jako {self.user.name} ({self.user.id})")
 		await self.tree.sync()
-		console_logger.info("Komendy zsynchronizowane.")
 		self.loop.create_task(check_for_updates())
 		self.start_time = datetime.now()
 		
@@ -251,7 +254,7 @@ class BOT(commands.Bot):
 	def get_uptime(self):
 		if self.start_time is None:
 			return "Bot nie jest jeszcze gotowy."
-		
+
 		uptime_duration = datetime.now() - self.start_time
 		days, remainder = divmod(uptime_duration.total_seconds(), 86400)
 		hours, remainder = divmod(remainder, 3600)
@@ -261,11 +264,10 @@ class BOT(commands.Bot):
 
 bot = BOT()
 
-# Funkcja do wysyłania instrukcji administratorom serwera.
+# Funkcja wysyłająca instrukcję administratorom serwera
 @bot.event
 async def on_guild_join(guild):
 	admins = [member for member in guild.members if member.guild_permissions.administrator and not member.bot]
-	
 	for admin in admins:
 		embed = discord.Embed(
 			title="**Cześć! Nadszedł czas na skonfigurowanie bota!**",
@@ -287,17 +289,16 @@ async def check_for_updates():
 		current_time = get_current_time()
 		for guild_id_str in config.get("allowed_guilds", []):
 			guild_id = int(guild_id_str)
-			channel_id = GUILD_CONFIG.get(str(guild_id), {}).get("channel_id")
-
+			channel_id = guild_config.get(str(guild_id), {}).get("channel_id")
+			channel = bot.get_channel(int(channel_id))
+			previous_data = manage_data_file(guild_id)
+			
 			if not channel_id:
 				console_logger.warning(f"Nie ustawiono ID kanału dla serwera {guild_id}.")
 				continue
-
-			channel = bot.get_channel(int(channel_id))
 			if not channel:
 				console_logger.warning(f"Nie znaleziono kanału z ID {channel_id} dla serwera {guild_id}.")
 				continue
-
 			console_logger.info(f"Sprawdzanie aktualizacji dla serwera {guild_id}.")
 
 			try:
@@ -306,19 +307,20 @@ async def check_for_updates():
 					console_logger.warning("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
 					continue
 
-				filter_classes = GUILD_CONFIG.get(str(guild_id), {}).get("selected_classes", [])
+				filter_classes = guild_config.get(str(guild_id), {}).get("selected_classes", [])
 				additional_info, current_entries, no_class_entries_by_teacher = extract_data_from_html(soup, filter_classes, classes_by_grade)
 
-				previous_data = manage_data_file(guild_id)
-
+				# Kalkulacja hashu nowo pobranych danych
 				current_additional_info_hash = calculate_hash_from_data(additional_info)
 				current_entries_hash = calculate_hash_from_data(current_entries)
 				current_no_class_entries_by_teacher_hash = calculate_hash_from_data(no_class_entries_by_teacher)
 
+				# Pobieranie starego hashu z pliku danych
 				previous_additional_info_hash = previous_data.get("additional_info_hash", "")
 				previous_entries_hash = previous_data.get("entries_hash", "")
 				previous_no_class_entries_by_teacher_hash = previous_data.get("no_class_entries_by_teacher_hash", "")
 
+				# Porównywanie nowego hashu ze starym hashem
 				additional_info_changed = current_additional_info_hash != previous_additional_info_hash
 				entries_changed = current_entries_hash != previous_entries_hash
 				no_class_entries_by_teacher_changed = current_no_class_entries_by_teacher_hash != previous_no_class_entries_by_teacher_hash
@@ -353,7 +355,8 @@ async def check_for_updates():
 async def send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time):
 	description_only_for_additional_info = f"**Dodatkowe informacje zastępstw:**\n{additional_info}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które zostały umieszczone przed zastępstwami. Nie znaleziono dla twojej klasy żadnych zastępstw, więc nie dostaniesz powiadomienia."
 	description_for_additional_info = f"**Dodatkowe informacje zastępstw:**\n{additional_info}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które zostały umieszczone przed zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością."
-	description_for_entries = f"\n### Informacja o tej wiadomości:\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!"
+	description_for_entries = "\n### Informacja o tej wiadomości:\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!"
+
 	try:
 		last_message = None
 		if additional_info and not current_entries and not no_class_entries_by_teacher:
@@ -363,16 +366,13 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 				color=EMBEDS_COLOR
 			)
 			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!")
-			last_message = await channel.send(embed=embed)
-			console_logger.info("Wiadomość jedynie z dodatkowymi informacjami wysłana pomyślnie.")
+			await channel.send(embed=embed)
 
-		elif additional_info and no_class_entries_by_teacher and not current_entries:
+		elif (additional_info and no_class_entries_by_teacher and not current_entries) or (no_class_entries_by_teacher and not current_entries):
 			ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
 			ping_msg = await channel.send(ping_message)
-			console_logger.info("Wiadomość ping wysłana pomyślnie.")
 			await asyncio.sleep(5)
 			await ping_msg.delete()
-			console_logger.info("Wiadomość ping została usunięta.")
 
 			embed = discord.Embed(
 				title="**Zastępstwa zostały zaktualizowane!**",
@@ -380,25 +380,22 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 				color=EMBEDS_COLOR
 			)
 			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!")
-			last_message = await channel.send(embed=embed)
-			console_logger.info("Wiadomość jedynie z dodatkowymi informacjami wysłana pomyślnie.")	
+			await channel.send(embed=embed)
+
 			for teacher, entries in no_class_entries_by_teacher.items():
 				embed = discord.Embed(
 					title=f"**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**",
 					description="\n\n".join(entries) + description_for_entries,
 					color=EMBEDS_COLOR
 				)
-				embed.set_footer(text=f"Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
-				last_message = await channel.send(embed=embed)
-				console_logger.info("Wiadomość z nieprzypisanymi klasami wysłana pomyślnie.")
+				embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
+				await channel.send(embed=embed)
 
-		elif additional_info and current_entries:
+		elif (additional_info and current_entries) or (current_entries):
 			ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
 			ping_msg = await channel.send(ping_message)
-			console_logger.info("Wiadomość ping wysłana pomyślnie.")
 			await asyncio.sleep(5)
 			await ping_msg.delete()
-			console_logger.info("Wiadomość ping została usunięta.")
 
 			embed = discord.Embed(
 				title="**Zastępstwa zostały zaktualizowane!**",
@@ -406,8 +403,7 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 				color=EMBEDS_COLOR
 			)
 			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!")
-			last_message = await channel.send(embed=embed)
-			console_logger.info("Wiadomość z dodatkowymi informacjami wysłana pomyślnie.")
+			await channel.send(embed=embed)
 
 			if no_class_entries_by_teacher:
 				for teacher, entries in no_class_entries_by_teacher.items():
@@ -416,9 +412,8 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 						description="\n\n".join(entries) + description_for_entries,
 						color=EMBEDS_COLOR
 					)
-					embed.set_footer(text=f"Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
-					last_message = await channel.send(embed=embed)
-					console_logger.info("Wiadomość z nieprzypisanymi klasami wysłana pomyślnie.")
+					embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
+					await channel.send(embed=embed)
 
 			for title, entries in current_entries:
 				embed = discord.Embed(
@@ -428,11 +423,9 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 				)
 				embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
 				last_message = await channel.send(embed=embed)
-				console_logger.info("Wiadomość z zastępstwami wysłana pomyślnie.")
 
-		if last_message and current_entries:
+		if last_message:
 			await last_message.add_reaction("❤️")
-			console_logger.info("Reakcja dołączona pomyślnie.")
 
 	except discord.DiscordException as e:
 		console_logger.error(f"Błąd podczas wysyłania wiadomości: {e}")
@@ -440,40 +433,18 @@ async def send_updates(channel, additional_info, current_entries, no_class_entri
 
 # Logowanie komend
 def log_command(interaction: discord.Interaction, success: bool, error_message: str = None):
-	user_id = interaction.user.id
-	guild_id = interaction.guild.id
-	channel_id = interaction.channel.id
-	command_name = interaction.command.name
-	
-	status = "pomyślnie" if success else "nieudanie"
-	error_info = f" Powód: {error_message}" if error_message else ""
-	
+	status = "pomyślnie" if success else "niepomyślnie"
+	error_info = f" ({error_message})" if error_message else ""
 	log_message = (
-		f"[{get_current_time()}] "
-		f"Użytkownik: {interaction.user} (ID: {user_id}) "
-		f"użył komendy '{command_name}' "
-		f"w serwerze '{interaction.guild.name}' (ID: {guild_id}) "
-		f"na kanale '{interaction.channel.name}' (ID: {channel_id}). "
-		f"Komenda wykonana {status}.{error_info}\n"
+		f"Użytkownik: {interaction.user} (ID: {interaction.user.id}) "
+		f"użył komendy '{interaction.command.name}' "
+		f"w serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) "
+		f"na kanale '{interaction.channel.name}' (ID: {interaction.channel.id}). "
+		f"Komenda wykonana {status}.{error_info}"
 	)
-	
 	commands_logger.info(log_message)
 
-# Komendy bota
 # /skonfiguruj
-def load_config():
-	if os.path.exists("config.json"):
-		with open("config.json", "r") as file:
-			return json.load(file)
-	return {}
-
-def save_config(config):
-	with open("config.json", "w") as file:
-		json.dump(config, file, indent=4)
-
-config = load_config()
-GUILD_CONFIG = config.get("guilds", {})
-
 class ClassGroupSelect(discord.ui.Select):
 	def __init__(self, classes_by_grade):
 		options = [
@@ -487,15 +458,14 @@ class ClassGroupSelect(discord.ui.Select):
 		self.classes_by_grade = classes_by_grade
 
 	async def callback(self, interaction: discord.Interaction):
-		selected_grades = self.values
 		all_classes = []
-		for grade in selected_grades:
+		for grade in self.values:
 			all_classes.extend(self.classes_by_grade.get(grade, []))
 		
 		view = ClassDetailView(all_classes)
 		embed = discord.Embed(
 			title="**Dalsza konfiguracja**",
-			description=f"Teraz wybierz klasy, których zastępstwa mają być wysyłane na wybrany przez ciebie kanał.",
+			description="Teraz wybierz klasy, których zastępstwa mają być wysyłane na wybrany przez ciebie kanał.",
 			color=EMBEDS_COLOR
 			)
 		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -511,13 +481,12 @@ class ClassDetailSelect(discord.ui.Select):
 		super().__init__(placeholder="Wybierz klasy", min_values=1, max_values=len(classes), options=options)
 
 	async def callback(self, interaction: discord.Interaction):
-		selected_classes = self.values
 		guild_id = str(interaction.guild.id)
-		channel_id = GUILD_CONFIG.get(guild_id, {}).get("channel_id")
+		channel_id = guild_config.get(guild_id, {}).get("channel_id")
 		
-		if guild_id not in GUILD_CONFIG:
-			GUILD_CONFIG[guild_id] = {}
-		GUILD_CONFIG[guild_id]["selected_classes"] = selected_classes
+		if guild_id not in guild_config:
+			guild_config[guild_id] = {}
+		guild_config[guild_id]["selected_classes"] = self.values
 		save_config(config)
 
 		embed = discord.Embed(title="**Podsumowanie Twoich wyborów**", color=EMBEDS_COLOR)
@@ -527,9 +496,9 @@ class ClassDetailSelect(discord.ui.Select):
 		else:
 			embed.add_field(name="Wybrany kanał:", value="**Brak**")
 
-		classes_summary = ", ".join(f"**{cls}**" for cls in selected_classes) if selected_classes else "**Brak**"
+		classes_summary = ", ".join(f"**{cls}**" for cls in self.values) if self.values else "**Brak**"
 		embed.add_field(name="Wybrane klasy:", value=classes_summary)
-		embed.set_footer(text=f"Stworzone z ❤️ przez Kacpra Górkę!")
+		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
 
 		await interaction.response.edit_message(
 			embed=embed,
@@ -547,20 +516,20 @@ class ClearFilterButton(discord.ui.Button):
 
 	async def callback(self, interaction: discord.Interaction):
 		guild_id = str(interaction.guild.id)
-		if guild_id in GUILD_CONFIG:
-			GUILD_CONFIG[guild_id].pop("selected_classes", None)
+		if guild_id in guild_config:
+			guild_config[guild_id].pop("selected_classes", None)
 			save_config(config)
 
 		embed = discord.Embed(title="**Podsumowanie Twoich wyborów**", color=EMBEDS_COLOR)
-		if "channel_id" in GUILD_CONFIG.get(guild_id, {}):
-			channel_id = GUILD_CONFIG[guild_id]["channel_id"]
+		if "channel_id" in guild_config.get(guild_id, {}):
+			channel_id = guild_config[guild_id]["channel_id"]
 			channel = interaction.guild.get_channel(int(channel_id))
 			embed.add_field(name="Wybrany kanał:", value=channel.mention if channel else "**Nie znaleziono kanału**")
 		else:
 			embed.add_field(name="Wybrany kanał:", value="**Brak**")
 
 		embed.add_field(name="Wybrane klasy:", value="**Wszystkie**")
-		embed.set_footer(text=f"Stworzone z ❤️ przez Kacpra Górkę!")
+		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
 
 		await interaction.response.edit_message(
 			embed=embed,
@@ -580,7 +549,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 		if not interaction.user.guild_permissions.administrator:
 			embed = discord.Embed(
 				title="**Polecenie nie zostało wykonane!**",
-				description=f"Nie masz uprawnień do używania tej komendy, komendę tą może użyć wyłącznie administrator serwera. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
+				description="Nie masz uprawnień do używania tej komendy, komendę tą może użyć wyłącznie administrator serwera. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
 				color=EMBEDS_COLOR
 				)
 			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -592,7 +561,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 		if str(interaction.guild.id) not in config.get("allowed_guilds", []):
 			embed = discord.Embed(
 				title="**Polecenie nie zostało wykonane!**",
-				description=f"Nie masz uprawnień do używania tej komendy na tym serwerze, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
+				description="Nie masz uprawnień do używania tej komendy na tym serwerze, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
 				color=EMBEDS_COLOR
 				)
 			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -601,13 +570,13 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 			log_command(interaction, success=False, error_message="Ten serwer nie znajduje się na liście dozwolonych serwerów.")
 			return
 
-		GUILD_CONFIG.setdefault(str(interaction.guild.id), {})["channel_id"] = str(channel.id)
+		guild_config.setdefault(str(interaction.guild.id), {})["channel_id"] = str(channel.id)
 		save_config(config)
 
 		view = ClassView(classes_by_grade)
 		embed = discord.Embed(
 			title="**Ważna informacja! (:exclamation:)**",
-			description=f"Teraz musisz dokonać wyboru, czy chcesz dostawać zastępstwa dla wszystkich klas, czy może dla klas wybranych przez Ciebie. Jeżeli postanowiłeś, że chcesz wybrać niestandardowe klasy, wybierz kategorie z ich przedziałem, w przeciwnym razie naciśnij przycisk.",
+			description="Teraz musisz dokonać wyboru, czy chcesz dostawać zastępstwa dla wszystkich klas, czy może dla klas wybranych przez Ciebie. Jeżeli postanowiłeś, że chcesz wybrać niestandardowe klasy, wybierz kategorie z ich przedziałem, w przeciwnym razie naciśnij przycisk.",
 			color=EMBEDS_COLOR
 			)
 		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -629,10 +598,10 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str = None, usun_id: str = None):
 	try:
 		# Sprawdza, czy użytkownik jest na liście dozwolonych użytkowników
-		if str(interaction.user.id) not in allowed_users:
+		if str(interaction.user.id) not in config.get("allowed_users", []):
 			embed = discord.Embed(
 				title="**Polecenie nie zostało wykonane!**",
-				description=f"Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie uprawniona osoba. Jeżeli jesteś administartorem serwera i chcesz skonfigurować bota, użyj komendy `/skonfiguruj`. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
+				description="Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie uprawniona osoba. Jeżeli jesteś administartorem serwera i chcesz skonfigurować bota, użyj komendy `/skonfiguruj`. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
 				color=EMBEDS_COLOR
 				)
 			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -645,7 +614,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 		if dodaj_id and usun_id:
 			embed = discord.Embed(
 				title="**Polecenie nie zostało wykonane!**",
-				description=f"Wykonana operacja jest niepoprawna. Możesz wybrać tylko jedną z obu dostępnych opcji.",
+				description="Wykonana operacja jest niepoprawna. Możesz wybrać tylko jedną z obu dostępnych opcji.",
 				color=EMBEDS_COLOR
 				)
 			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -658,7 +627,7 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 		if not dodaj_id and not usun_id:
 			embed = discord.Embed(
 				title="**Polecenie nie zostało wykonane!**",
-				description=f"Wykonana operacja jest niepoprawna. Musisz wybrać co najmniej jedną z obu dostępnych opcji.",
+				description="Wykonana operacja jest niepoprawna. Musisz wybrać co najmniej jedną z obu dostępnych opcji.",
 				color=EMBEDS_COLOR
 				)
 			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -682,11 +651,11 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 			return
 
 		# Obsługa dodania ID serwera
-		if dodaj_id:
+		if dodaj_id and not usun_id:
 			if dodaj_id in config.get("allowed_guilds", []):
 				embed = discord.Embed(
 					title="**Polecenie nie zostało wykonane!**",
-					description=f"Wykonana operacja jest niepoprawna. Ten serwer znajduję się już na liście dozwolonych serwerów.",
+					description="Wykonana operacja jest niepoprawna. Ten serwer znajduję się już na liście dozwolonych serwerów.",
 					color=EMBEDS_COLOR
 					)
 				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -709,11 +678,11 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 				log_command(interaction, success=True)
 
 		# Obsługa usunięcia ID serwera
-		if usun_id:
+		if usun_id and not dodaj_id:
 			if usun_id not in config.get("allowed_guilds", []):
 				embed = discord.Embed(
 					title="**Polecenie nie zostało wykonane!**",
-					description=f"Wykonana operacja jest niepoprawna. Ten serwer nie znajduje się na liście dozwolonych serwerów.",
+					description="Wykonana operacja jest niepoprawna. Ten serwer nie znajduje się na liście dozwolonych serwerów.",
 					color=EMBEDS_COLOR
 					)
 				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
@@ -743,8 +712,6 @@ async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str =
 # /informacje
 @bot.tree.command(name="informacje", description="Wyświetl najważniejsze informacje dotyczące bota.")
 async def informacje(interaction: discord.Interaction):
-	server_count = bot.get_server_count()
-	uptime_message = bot.get_uptime()
 	try:
 		embed = discord.Embed(
 			title="**Informacje dotyczące bota**",
@@ -754,28 +721,23 @@ async def informacje(interaction: discord.Interaction):
 		embed.add_field(name="Wersja bota:", value=BOT_VERSION)
 		embed.add_field(name="Repozytorium GitHuba:", value=(f"[{SHORT_GITHUB_REPOSITORY}]({GITHUB_REPOSITORY})"))
 		embed.add_field(name="Administratorzy bota:", value=BOT_ADMINISTRATORS)
-		embed.add_field(name="Ilość serwerów:", value=(f"Bot znajduję się na **{server_count}** serwerach."))
-		embed.add_field(name="Bot pracuje bez przerwy przez:", value=uptime_message)
+		embed.add_field(name="Ilość serwerów:", value=(f"Bot znajduję się na **{bot.get_server_count()}** serwerach."))
+		embed.add_field(name="Bot pracuje bez przerwy przez:", value=bot.get_uptime())
 		if str(interaction.guild.id) in config.get("allowed_guilds", []):
-			embed.add_field(name="Czy ten serwer jest dozwolony?", value=(f"Tak, jest."))
+			embed.add_field(name="Czy ten serwer jest dozwolony?", value=("Tak, jest."))
 		else:
-			embed.add_field(name="Czy ten serwer jest dozwolony?", value=(f"Nie, nie jest."))
+			embed.add_field(name="Czy ten serwer jest dozwolony?", value=("Nie, nie jest."))
 		embed.set_footer(text="Projekt ten licencjonowany jest na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
 
 		await interaction.response.send_message(embed=embed)
-		log_command(interaction, success=True)	
+		log_command(interaction, success=True)
 	except Exception as e:
 		log_command(interaction, success=False, error_message=str(e))
 		await interaction.response.send_message(f"Wystąpił błąd: {str(e)}", ephemeral=True)
 		raise
 
 # Uruchomienie bota
-config = load_config()
-TOKEN = config.get("token")
-if not TOKEN:
+if not config.get("token"):
 	console_logger.error("Brak tokena bota. Ustaw TOKEN w pliku konfiguracyjnym.")
 	exit(1)
-GUILD_CONFIG = config.get("guilds", {})
-allowed_users = config.get("allowed_users", [])
-
-bot.run(TOKEN)
+bot.run(config.get("token"))
