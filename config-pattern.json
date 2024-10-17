@@ -1,10 +1,10 @@
 {
-    "token": "TOKEN-BOTA",
+    "token": "TOKEN_BOTA",
     "allowed_guilds": [
     ],
     "guilds": {
     },
     "allowed_users": [
-        "TWOJE-ID"
+        "TWOJE_DISCORD_ID"
     ]
 }
