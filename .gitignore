@@ -1,2 +1,7 @@
+/Logs/
+/Resources/
+.DS_Store
 *.json
 *.log
+*.tmp
+*.bad

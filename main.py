@@ -1,714 +1,1000 @@
 # Standardowe biblioteki Pythona
+import asyncio
+from collections import defaultdict
+import contextlib
+import copy
+from datetime import datetime
+import difflib
+import hashlib
 import json
-import os
 import logging
 import logging.handlers
-import asyncio
-from datetime import datetime
-import random
-import hashlib
+import os
+from pathlib import Path
+import re
+import unicodedata
 
 # Zewnętrzne biblioteki
+import aiohttp
 import discord
-from discord.ext import commands
 from discord import app_commands
-import requests
-from bs4 import BeautifulSoup
 import pytz
+from bs4 import BeautifulSoup
 
-# Stałe przeznaczone do konfiguracji
-BOT_VERSION = "1.3.7-stable"
-TIMEZONE = pytz.timezone("Europe/Warsaw")	# Strefa czasowa dla logów.
-CHECK_INTERVAL = 300						# Czas (w sekundach) jaki bot wyczekuje, aby ponownie sprawdzić aktualizacje.
-URL = "https://zastepstwa.zse.bydgoszcz.pl/"# URL do pobierania zastępstw.
-ENCODING = "iso-8859-2"						# Kodowanie strony, z której pobierane są informacje. Jeżeli kodowanie nie będzie zgodne z tym na stronie, to bot będzie niepoprawnie wysyłał zastępstwa!
-TEACHERS_CELL_COLOR = "#69AADE"				# W przypadku strony z zastępstwami mojej szkoły, nauczyciel, za którego są zastępstwa, znajduje się w komórce z kolorem #69AADE, więc bot wczytuje jej zawartość w tytuł embeda, który wysyła podczas aktualizacji. Domyślnie ustawiony kolor przez VULCAN to #FFDFBF, ale zalecam sprawdzenie indywidualne.
-EMBEDS_COLOR = discord.Color(0xca4449)		# Kolor embedów, które wysyła bot.
-BOT_ADMINISTRATORS = "[Kacper Górka](https://www.instagram.com/kacperekyea/)"	# Administratorzy bota oraz ich kontakt. Informacje tutaj, jak i w stałych poniżej wprowadzone, będą wyświetlać się po wywołaniu komendy /informacje.
-GITHUB_REPOSITORY = "https://github.com/kacpergorka/Zastepstwa"					# URL do repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ STAŁEJ!
-SHORT_GITHUB_REPOSITORY = "kacpergorka/zastepstwa"								# Skrócona wersja repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ STAŁEJ!
-GITHUB_ISSUES = "https://github.com/kacpergorka/Zastepstwa/issues"				# URL do issues w repozytorium GitHuba. JEŻELI NIE WPROWADZASZ W KODZIE ZMIAN INNYCH NIŻ PRZEZNACZONA KONFIGURACJA, NIE ZMIENIAJ TEJ STAŁEJ!
-classes_by_grade = {
-	"1": ["1 A", "1 D", "1 F", "1 H"],
-	"2": ["2 A", "2 B", "2 D", "2 E", "2 F", "2 H", "2 I", "2 J"],
-	"3": ["3 A", "3 B", "3 D", "3 F", "3 H", "3 I", "3 J"],
-	"4": ["4 A", "4 B", "4 D", "4 E", "4 F", "4 H", "4 I"],
-	"5": ["5 A", "5 B", "5 D", "5 E", "5 F", "5 H", "5 I"]
-	}	# Tutaj znajdują się klasy, które filtruje bot. Klasy powyżej wprowadzone można zmienić pod własne zapotrzebowania.
-
-# Konfiguracja logów
-class TimezoneFormatter(logging.Formatter):
-	def formatTime(self, record, datefmt=None):
-		return datetime.now(TIMEZONE).strftime("%d-%m-%Y %H:%M:%S")
-
-def setup_logging():
-	console_logger = logging.getLogger("discord")
-	console_logger.setLevel(logging.DEBUG)
-	commands_logger = logging.getLogger("discord.commands")
-	commands_logger.setLevel(logging.DEBUG)
+class zastępstwa(discord.Client):
+	def __init__(self, *, intents: discord.Intents):
+		super().__init__(intents=intents)
+		self.tree = app_commands.CommandTree(self)
 	
-	console_handler = logging.handlers.RotatingFileHandler(
-	filename="console.log",
-	encoding="utf-8")
-	console_handler.setLevel(logging.DEBUG)
+	async def setup_hook(self):
+		try:
+			self.połączenie_http = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
+		except Exception as e:
+			logiKonsoli.critical(f"Nie udało się utworzyć sesji HTTP. Więcej informacji: {e}")
 
-	commands_handler = logging.handlers.RotatingFileHandler(
-	filename="commands.log",
-	encoding="utf-8")
-	commands_handler.setLevel(logging.DEBUG)
-	
-	formatter = TimezoneFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-	console_handler.setFormatter(formatter)
-	commands_handler.setFormatter(formatter)
-	
-	console_logger.addHandler(console_handler)
-	commands_logger.addHandler(commands_handler)
+	async def close(self):
+		if getattr(self, "połączenie_http", None):
+			try:
+				await self.połączenie_http.close()
+			except Exception as e:
+				logiKonsoli.exception(f"Błąd podczas zamykania sesji HTTP. Więcej informacji: {e}")
+		await super().close()
 
-	return console_logger, commands_logger
-
-console_logger, commands_logger = setup_logging()
-
-# Pobieranie aktualnego czasu
-def get_current_time():
-	return datetime.now(TIMEZONE).strftime("%d-%m-%Y %H:%M:%S")
-
-# Kalkulacja hashu
-def calculate_hash_from_data(data):
-	if isinstance(data, str):
-		hash_input = data.strip()
-	
-	elif isinstance(data, list):
-		hash_input = ""
-		for title, entry_list in data:
-			hash_input += title.strip() + "".join(entry.strip() for entry in entry_list)
-
-	elif isinstance(data, dict):
-		hash_input = ""
-		for key, value in data.items():
-			hash_input += key.strip() + "".join(entry.strip() for entry in value)
-
-	else:
-		hash_input = str(data)
-
-	return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
-
-# Obsługa konfiguracji
-def load_config():
-	if not os.path.exists("config.json"):
-		console_logger.error("Brak pliku konfiguracyjnego.")
-		exit(1)
-	try:
-		with open("config.json", "r") as file:
-			config = json.load(file)
-			for guild_id in config.get("allowed_guilds", []):
-				config.setdefault("guilds", {}).setdefault(str(guild_id), {"channel_id": None, "selected_classes": []})
-			return config
-	except json.JSONDecodeError as e:
-		console_logger.error(f"Błąd podczas wczytywania pliku konfiguracyjnego: {e}")
-		exit(1)
-
-# Zmienne globalne
-config = load_config()
-guild_config = config.get("guilds", {})
-
-# Zapisanie konfiguracji
-def save_config(config):
-	try:
-		with open("config.json", "w") as f:
-			json.dump(config, f, indent=4)
-	except IOError as e:
-		console_logger.error(f"Błąd podczas zapisywania pliku konfiguracyjnego: {e}")
-
-# Pobieranie i przetwarzanie danych z witryny
-def fetch_website_content(url):
-	console_logger.info(f"Pobieranie URL: {url}")
-	try:
-		response = requests.get(url, timeout=10)
-		response.raise_for_status()
-		response.encoding = ENCODING 
-		return BeautifulSoup(response.text, "html.parser")
-	except requests.Timeout as e:
-		console_logger.warning(f"Przekroczono czas oczekiwania na połączenie. Więcej informacji: {e}")
-	except requests.RequestException as e:
-		console_logger.error(f"Nie udało się pobrać URL: {e}")
-	return None
-
-def extract_data_from_html(soup, filter_classes, classes_by_grade):
-	if soup is None:
-		console_logger.warning("Brak treści pobranej ze strony.")
-		return "", [], {}
-
-	try:
-		entries = []
-		additional_info = ""
-		rows = soup.find_all("tr")
-
-		# Ekstrakcja dodatkowych informacji
-		additional_info_cell = next((cell for row in rows for cell in row.find_all("td") if cell.get("class") == ["st0"]), None)
-		if additional_info_cell:
-			link_tag = additional_info_cell.find("a")
-			if link_tag and link_tag.get("href"):
-				link_text = link_tag.get_text(strip=True)
-				link_url = link_tag["href"]
-				additional_info_text = additional_info_cell.get_text(separator="\n", strip=True).replace(link_text, "").strip()
-				additional_info = f"{additional_info_text}\n[{link_text}]({link_url})"
-			else:
-				additional_info = additional_info_cell.get_text(separator="\n", strip=True)
-
-		current_title = None
-		current_entries = []
-		no_class_entries_by_teacher = {}
-
-		for row in rows:
-			cells = row.find_all("td")
-
-			if len(cells) == 1:
-				cell = cells[0]
-				if cell.get("bgcolor") == TEACHERS_CELL_COLOR:
-					if current_title and current_entries:
-						entries.append((current_title, current_entries))
-					current_title = cell.get_text(separator="\n", strip=True)
-					current_entries = []
-					continue
-				if cell.get("class") == ["st0"]:
-					continue
-
-			# Wyodrębnianie danych zastępstw
-			if len(cells) == 4:
-				lekcja, opis, zastępca, uwagi = (cell.get_text(strip=True) for cell in cells)
-
-				entry_lines = []
-				if lekcja and lekcja != "lekcja":
-					entry_lines.append(f"**Lekcja:** {lekcja}")
-				elif len(entry_lines) > 0:
-					entry_lines.append("**Lekcja:** Brak")
-				if opis and opis != "opis":
-					entry_lines.append(f"**Opis:** {opis}")
-				elif len(entry_lines) > 0:
-					entry_lines.append("**Opis:** Brak")
-				if zastępca and zastępca != "zastępca":
-					entry_lines.append(f"**Zastępca:** {zastępca}")
-				elif len(entry_lines) > 0:
-					entry_lines.append("**Zastępca:** Brak")
-				if uwagi and uwagi != "uwagi":
-					entry_lines.append(f"**Uwagi:** {uwagi}")
-				elif len(entry_lines) > 0:
-					entry_lines.append("**Uwagi:** Brak")
-
-				entry_text = "\n".join(entry_lines).strip()
-				if entry_text:
-					if not filter_classes:
-						current_entries.append(entry_text)
-					else:
-						if not any(cls in entry_text for grade_classes in classes_by_grade.values() for cls in grade_classes):
-							if current_title not in no_class_entries_by_teacher:
-								no_class_entries_by_teacher[current_title] = []
-							no_class_entries_by_teacher[current_title].append(entry_text)
-						elif any(cls in entry_text for cls in filter_classes):
-							current_entries.append(entry_text)
-
-		if current_title and current_entries:
-			entries.append((current_title, current_entries))
-
-		console_logger.info(f"Wyodrębniono {len(entries)} wpis(ów) z przypisanymi klasami.")
-		console_logger.info(f"Wyodrębniono {len(no_class_entries_by_teacher)} wpis(ów) bez przypisanych klas.")
-		return additional_info, entries, no_class_entries_by_teacher
-	except Exception as e:
-		console_logger.error(f"Błąd podczas przetwarzania HTML: {e}")
-		return "", [], {}
-
-# Obsługa plików danych
-def manage_data_file(guild_id, data=None):
-	file_path = f"previous_hash_{guild_id}.json"
-	try:
-		if data is not None:
-			with open(file_path, "w", encoding="utf-8") as file:
-				json.dump(data, file, ensure_ascii=False, indent=4)
-		else:
-			if os.path.exists(file_path):
-				with open(file_path, "r", encoding="utf-8") as file:
-					return json.load(file)
-			return {}
-	except IOError as e:
-		console_logger.error(f"Błąd podczas operacji na pliku z danymi: {e}")
-		return {}
-	
-# Główna klasa i logika
-class BOT(commands.Bot):
-	def __init__(self):
-		intents = discord.Intents.default()
-		intents.guilds = True
-		intents.members = True 
-		super().__init__(command_prefix="", intents=intents)
-		self.start_time = None
-	
 	async def on_ready(self):
-		console_logger.info(f"Zalogowano jako {self.user.name} ({self.user.id})")
-		await self.tree.sync()
-		self.loop.create_task(check_for_updates())
-		self.start_time = datetime.now()
+		try:
+			self.start_time = datetime.now()
+			logiKonsoli.info(f"Zalogowano jako {self.user.name} (ID: {self.user.id}).")
+			await self.tree.sync()
+			asyncio.create_task(sprawdźAktualizacje())
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd podczas wywoływania on_ready. Więcej informacji: {e}")
 		
-	def get_server_count(self):
+	def pobierzLiczbęSerwerów(self):
 		return len(self.guilds)
 
-	def get_uptime(self):
-		if self.start_time is None:
-			return "Bot nie jest jeszcze gotowy."
+	def pobierzCzasDziałania(self):
+		czasDziałania = datetime.now() - self.start_time
+		dni, reszta = divmod(czasDziałania.total_seconds(), 86400)
+		godziny, reszta = divmod(reszta, 3600)
+		minuty, sekundy = divmod(reszta, 60)
 
-		uptime_duration = datetime.now() - self.start_time
-		days, remainder = divmod(uptime_duration.total_seconds(), 86400)
-		hours, remainder = divmod(remainder, 3600)
-		minutes, seconds = divmod(remainder, 60)
+		return f"**{int(dni)}**d, **{int(godziny)}**h, **{int(minuty)}**m i **{int(sekundy)}**s."
 
-		return f"**{int(days)}**d, **{int(hours)}**h, **{int(minutes)}**m i **{int(seconds)}**s."
+intents = discord.Intents.default()
+intents.guilds = True
+intents.members = True
+bot = zastępstwa(intents=intents)
 
-bot = BOT()
+# Konfiguracja logowania
+class formatStrefyCzasowej(logging.Formatter):
+	def formatTime(self, record, datefmt=None):
+		dt = datetime.fromtimestamp(record.created, pytz.timezone("Europe/Warsaw"))
+		if datefmt:
+			return dt.strftime(datefmt)
+		return dt.strftime("%d-%m-%Y %H:%M:%S")
+
+def skonfigurujLogi():
+	folderLogów = Path("Logs")
+	folderLogów.mkdir(exist_ok=True)
+
+	logiKonsoli = logging.getLogger("discord")
+	logiKonsoli.setLevel(logging.INFO)
+	logiPoleceń = logging.getLogger("discord.commands")
+	logiPoleceń.setLevel(logging.DEBUG)
+
+	ścieżkaLogów = folderLogów / "console.log"
+
+	obsługaLogów = logging.handlers.RotatingFileHandler(
+		filename=ścieżkaLogów,
+		encoding="utf-8",
+		maxBytes=32 * 1024 * 1024,
+		backupCount=31
+	)
+
+	formatter = formatStrefyCzasowej("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+	obsługaLogów.setFormatter(formatter)
+
+	logiKonsoli.addHandler(obsługaLogów)
+	logiPoleceń.addHandler(obsługaLogów)
+
+	return logiKonsoli, logiPoleceń
+
+logiKonsoli, logiPoleceń = skonfigurujLogi()
+
+def logujPolecenia(interaction: discord.Interaction, success: bool, error_message: str = None):
+	status = "pomyślnie" if success else "niepomyślnie"
+	informacjaBłędu = f" ({error_message})" if error_message else ""
+
+	opcje = []
+	try:
+		opcje = (interaction.data or {}).get("options", []) if interaction and getattr(interaction, "data", None) else []
+	except Exception:
+		opcje = []
+
+	if opcje:
+		użyteArgumenty = "Użyte argumenty: " + ", ".join(f"{opcja.get('name')} ({opcja.get('value')}). " for opcja in opcje)
+	else:
+		użyteArgumenty = ""
+
+	try:
+		if getattr(interaction, "guild", None):
+			miejsce = (
+				f"w serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) "
+				f"na kanale '{getattr(interaction.channel, 'name', 'N/A')}' (ID: {getattr(interaction.channel, 'id', 'N/A')}). "
+			)
+		else:
+			miejsce = "w wiadomości prywatnej (DM). "
+	except Exception:
+		miejsce = ""
+
+	nazwaPolecenia = getattr(getattr(interaction, "command", None), "name", getattr(interaction, "command_name", "unknown"))
+	użytkownik = f"{getattr(interaction, 'user', 'Unknown')}"
+	identyfikatorUżytkownika = getattr(getattr(interaction, "user", None), "id", "Unknown")
+
+	wiadomośćLogu = (
+		f"Użytkownik: {użytkownik} (ID: {identyfikatorUżytkownika}) "
+		f'użył komendy "{nazwaPolecenia}" '
+		f"{miejsce}"
+		f"{użyteArgumenty}"
+		f"Komenda wykonana {status}.{informacjaBłędu}"
+	)
+	logiPoleceń.info(wiadomośćLogu)
+
+# Zarządzanie plikiem konfiguracyjnym
+ścieżkaKonfiguracji = Path("config.json")
+blokadaKonfiguracji = asyncio.Lock()
+
+def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
+	if not path.exists():
+		default = {
+			"wersja": "2.0.0-beta",
+			"url": "",
+			"token": "",
+			"serwery": {},
+			"lista-klas": {
+				"1": [],
+				"2": [],
+				"3": [],
+				"4": [],
+				"5": []
+			},
+			"lista-nauczycieli": []
+		}
+		path.write_text(json.dumps(default, ensure_ascii=False, indent=4), encoding="utf-8")
+		logiKonsoli.warning("Utworzono domyślny config.json. Uzupełnij plik konfiguracyjny.")
+		return default
+
+	try:
+		dane = json.loads(path.read_text(encoding="utf-8"))
+		dane.setdefault("serwery", {})
+		return dane
+	except json.JSONDecodeError as e:
+		logiKonsoli.error(f"Błąd podczas wczytywania config.json. Więcej informacji: {e}")
+		raise
+
+konfiguracja = wczytajKonfiguracje()
+
+async def zapiszKonfiguracje(konfiguracja):
+	tmp = ścieżkaKonfiguracji.with_suffix(".json.tmp")
+
+	def zapisz():
+		with open(tmp, "w", encoding="utf-8") as plik:
+			json.dump(konfiguracja, plik, ensure_ascii=False, indent=4)
+		os.replace(str(tmp), str(ścieżkaKonfiguracji))
+
+	try:
+		await asyncio.to_thread(zapisz)
+	except Exception as e:
+		logiKonsoli.exception(f"Błąd podczas zapisywania pliku konfiguracyjnego. Więcej informacji: {e}")
+
+async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
+	async with blokadaKonfiguracji:
+		serwery = konfiguracja.setdefault("serwery", {})
+		if str(identyfikatorSerwera) in serwery:
+			del serwery[str(identyfikatorSerwera)]
+			logiKonsoli.info(f"Usunięto serwer o ID {identyfikatorSerwera} z pliku config.json.")
+		else:
+			logiKonsoli.warning(f"Nie znaleziono konfiguracji serwera o ID {identyfikatorSerwera}. Dane nie zostały usunięte.")
+
+		snapshot = copy.deepcopy(konfiguracja)
+
+	await zapiszKonfiguracje(snapshot)
+
+	ścieżkaZasobów = folderDanych / f"{identyfikatorSerwera}.json"
+	if ścieżkaZasobów.exists():
+		try:
+			await asyncio.to_thread(ścieżkaZasobów.unlink)
+			logiKonsoli.info(f"Usunięto plik zasobów: {ścieżkaZasobów}.")
+		except Exception as e:
+			logiKonsoli.error(f"Błąd podczas usuwania pliku zasobów: {ścieżkaZasobów}. Więcej informacji: {e}")
+
+# Obliczanie hashu
+def obliczHash(dane):
+	if isinstance(dane, str):
+		wejścieHash = dane.strip()
+
+	elif isinstance(dane, list):
+		części = []
+		for tytuł, wpisy in sorted(dane, key=lambda pozycja: pozycja[0]):
+			części.append(tytuł.strip())
+			for wpis in sorted(wpisy):
+				części.append(wpis.strip())
+		wejścieHash = "\n".join(części)
+
+	else:
+		wejścieHash = str(dane)
+	return hashlib.sha256(wejścieHash.encode("utf-8")).hexdigest()
+
+# Pobieranie zawartości witryny
+async def pobierzZawartośćWitryny(url):
+	logiKonsoli.debug(f"Pobieranie URL: {url}")
+	try:
+		async with bot.połączenie_http.get(url) as response:
+			response.raise_for_status()
+			text = await response.text(encoding="utf-8", errors="ignore")
+			return BeautifulSoup(text, "html.parser")
+	except asyncio.TimeoutError as e:
+		logiKonsoli.warning(f"Przekroczono czas oczekiwania na połączenie. Więcej informacji: {e}")
+	except aiohttp.ClientError as e:
+		logiKonsoli.error(f"Błąd klienta HTTP podczas pobierania strony. Więcej informacji: {e}")
+	except Exception as e:
+		logiKonsoli.exception(f"Błąd podczas pobierania strony. Więcej informacji: {e}")
+	return None
+
+# Normalizacja tekstu i klucze dopasowań
+def normalizujTekst(tekst: str) -> str:
+	if not tekst or not isinstance(tekst, str):
+		return ""
+	tekst = tekst.strip()
+	tekst = unicodedata.normalize("NFKD", tekst)
+	tekst = "".join(ch for ch in tekst if not unicodedata.combining(ch))
+	tekst = tekst.replace(".", " ")
+	tekst = re.sub(r"\s+", " ", tekst)
+	return tekst.lower()
+
+def zwróćNazwyKluczy(nazwa: str) -> set:
+	norma = normalizujTekst(nazwa)
+	if not norma:
+		return set()
+	części = norma.split()
+	klucze = {norma}
+	if części:
+		klucze.add(części[-1])
+	if len(części) >= 1:
+		klucze.add(f"{części[0][0]} {części[-1]}")
+		klucze.add(f"{części[0][0]}{części[-1]}")
+	return klucze
+
+def wyodrębnijNauczycieli(nazwaNagłówka: str, komórkaZastępcy: str) -> set:
+	wyodrębnieniNauczyciele = set()
+	if nazwaNagłówka and nazwaNagłówka.strip():
+		wyodrębnieniNauczyciele.add(nazwaNagłówka.strip())
+	if komórkaZastępcy and komórkaZastępcy.strip():
+		części = re.split(r"[,\n;/&]| i | I ", komórkaZastępcy)
+		for nauczyciel in części:
+			nauczyciel = nauczyciel.strip()
+			if nauczyciel and nauczyciel != "&nbsp;":
+				wyodrębnieniNauczyciele.add(nauczyciel)
+	return wyodrębnieniNauczyciele
+
+def dopasujNauczyciela(wyodrębnieniNauczyciele: set, wybraniNauczyciele: list) -> bool:
+	if not wybraniNauczyciele:
+		return False
+	zbiórKluczy = set()
+	for dopasowanie in wyodrębnieniNauczyciele:
+		zbiórKluczy |= zwróćNazwyKluczy(dopasowanie)
+	kluczeWybranychNauczycieli = set()
+	for nauczyciel in wybraniNauczyciele:
+		kluczeWybranychNauczycieli |= zwróćNazwyKluczy(nauczyciel)
+	return bool(zbiórKluczy & kluczeWybranychNauczycieli)
+
+def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
+	if not wybraneKlasy:
+		return False
+
+	komórki = komórkiWiersza[:]
+
+	if len(komórki) > 1 and komórki[1]:
+		komórki[1] = komórki[1].split('-', 1)[0]
+
+	tekst = " ".join(komórka or "" for komórka in komórki)
+	tekst = normalizujTekst(tekst)
+	tekst = re.sub(r"[\(\)]", " ", tekst)
+	tekst = re.sub(r"\s+", " ", tekst)
+	for klasa in wybraneKlasy:
+		normaKlasy = normalizujTekst(klasa)
+		części = normaKlasy.split()
+		wzór = r"\b" + r"\s*".join(map(re.escape, części)) + r"\b"
+		if re.search(wzór, tekst):
+			return True
+	return False
+
+# Wyodrębnienie danych z pobranego pliku witryny
+def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
+	if zawartośćStrony is None:
+		logiKonsoli.warning("Brak treści pobranej ze strony.")
+		return "", []
+	if wybraniNauczyciele is None:
+		wybraniNauczyciele = []
+	try:
+		informacjeDodatkowe = ""
+		wiersze = zawartośćStrony.find_all("tr")
+
+		# Ekstrakcja dodatkowych informacji
+		komórkaDodatkowychInformacji = None
+		for wiersz in wiersze:
+			for komórka in wiersz.find_all("td"):
+				klasy = komórka.get("class") or []
+				if isinstance(klasy, str):
+					klasy = [klasy]
+				if "st0" in klasy:
+					komórkaDodatkowychInformacji = komórka
+					break
+			if komórkaDodatkowychInformacji:
+				break
+
+		if komórkaDodatkowychInformacji:
+			link = komórkaDodatkowychInformacji.find("a")
+			if link and link.get("href"):
+				tekstLinku = link.get_text(strip=True)
+				urlLinku = link["href"]
+				tekstDodatkowychInformacji = komórkaDodatkowychInformacji.get_text(separator="\n", strip=True).replace(tekstLinku, "").strip()
+				informacjeDodatkowe = f"{tekstDodatkowychInformacji}\n[{tekstLinku}]({urlLinku})"
+			else:
+				informacjeDodatkowe = komórkaDodatkowychInformacji.get_text(separator="\n", strip=True)
+
+		aktualnyNauczyciel = None
+		zgrupowane = defaultdict(list)
+
+		for wiersz in wiersze:
+			komórki = wiersz.find_all("td")
+
+			if len(komórki) == 1:
+				aktualnyNauczyciel = komórki[0].get_text(separator="\n", strip=True)
+				continue
+
+			if komórki and (komórki[0].get("class") or []):
+				klasyPierwszejKomórkiWiersza = komórki[0].get("class")
+				if isinstance(klasyPierwszejKomórkiWiersza, str):
+					klasyPierwszejKomórkiWiersza = [klasyPierwszejKomórkiWiersza]
+				if "st0" in klasyPierwszejKomórkiWiersza:
+					continue
+
+			if len(komórki) >= 4:
+				teksty = [komórka.get_text(strip=True) for komórka in komórki[:4]]
+				lekcja, opis, zastępca, uwagi = teksty
+				pola = [lekcja, opis, zastępca, uwagi]
+				etykiety = ["Lekcja", "Opis", "Zastępca", "Uwagi"]
+
+				def wyodrębnijPrzydatne(wartość, etykieta):
+					return bool(wartość and wartość.lower() != etykieta.lower())
+
+				if not any(wyodrębnijPrzydatne(wartość, etykieta) for wartość, etykieta in zip(pola, etykiety)):
+					continue
+
+				wierszeWpisówZastępstw = []
+				for wartość, etykieta in zip(pola, etykiety):
+					if wyodrębnijPrzydatne(wartość, etykieta):
+						wierszeWpisówZastępstw.append(f"**{etykieta}:** {wartość}")
+					else:
+						wierszeWpisówZastępstw.append(f"**{etykieta}:** Brak")
+
+				tekstWpisówZastępstw = "\n".join(wierszeWpisówZastępstw).strip()
+				if not tekstWpisówZastępstw:
+					continue
+
+				komórkiWiersza = [lekcja, opis, zastępca, uwagi]
+				dopasowaneDoKlasy = dopasujDoKlasy(komórkiWiersza, wybraneKlasy)
+				wyodrębnieniNauczyciele = wyodrębnijNauczycieli(aktualnyNauczyciel, zastępca)
+				dopasowaneDoNauczyciela = dopasujNauczyciela(wyodrębnieniNauczyciele, wybraniNauczyciele)
+
+				if (wybraneKlasy or wybraniNauczyciele) and (dopasowaneDoKlasy or dopasowaneDoNauczyciela):
+					kluczNauczyciela = aktualnyNauczyciel or ", ".join(wyodrębnieniNauczyciele) or "Ogólne"
+					zgrupowane[kluczNauczyciela].append(tekstWpisówZastępstw)
+
+		wpisyZastępstw = [(nauczyciel, zgrupowane[nauczyciel]) for nauczyciel in zgrupowane if zgrupowane[nauczyciel]]
+		logiKonsoli.debug(f"Wyodrębniono {len(wpisyZastępstw)} wpis(ów).")
+		return informacjeDodatkowe, wpisyZastępstw
+
+	except Exception as e:
+		logiKonsoli.exception(f"Błąd podczas przetwarzania HTML. Więcej informacji: {e}")
+		return "", []
+
+# Obsługa plików danych
+folderDanych = Path("Resources")
+folderDanych.mkdir(exist_ok=True)
+
+async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
+	ścieżkaPliku = folderDanych / f"{identyfikatorSerwera}.json"
+	tmp = ścieżkaPliku.with_suffix(".json.tmp")
+
+	try:
+		if dane is not None:
+			def zapisz():
+				with open(tmp, "w", encoding="utf-8") as plik:
+					json.dump(dane, plik, ensure_ascii=False, indent=4)
+				os.replace(str(tmp), str(ścieżkaPliku))
+			await asyncio.to_thread(zapisz)
+			return True
+
+		def odczytaj():
+			return ścieżkaPliku.exists()
+		if await asyncio.to_thread(odczytaj):
+			try:
+				def wczytaj():
+					return json.loads(ścieżkaPliku.read_text(encoding="utf-8"))
+				return await asyncio.to_thread(wczytaj)
+			except json.JSONDecodeError as e:
+				uszkodzony = ścieżkaPliku.with_suffix(".json.bad")
+
+				def zamieńUszkodzonyPlik():
+					os.replace(str(ścieżkaPliku), str(uszkodzony))
+				try:
+					await asyncio.to_thread(zamieńUszkodzonyPlik)
+					logiKonsoli.error(f"Uszkodzony plik danych przeniesiony do: {uszkodzony}. Powrót do pustego stanu.")
+				except Exception as e:
+					logiKonsoli.exception(f"Błąd przenoszenia uszkodzonego pliku danych. Więcej informacji: {e}")
+				return {}
+		return {}
+	except Exception as e:
+		logiKonsoli.exception(f"Błąd podczas operacji na pliku z danymi. Więcej informacji: {e}")
+		if tmp.exists():
+			try:
+				tmp.unlink()
+			except Exception as e:
+				logiKonsoli.error(f"Nie udało się usunąć pliku tymczasowego: {tmp}. Więcej informacji: {e}")
+		return {}
+
+# Sprawdzanie aktualizacji
+async def sprawdźAktualizacje():
+	await bot.wait_until_ready()
+	while not bot.is_closed():
+		url = konfiguracja.get("url")
+		zawartośćStrony = await pobierzZawartośćWitryny(url)
+		if zawartośćStrony is None:
+			logiKonsoli.warning("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
+		else:
+			async with blokadaKonfiguracji:
+				serwery = list((konfiguracja.get("serwery", {}) or {}).keys())
+			zadania = [sprawdźSerwer(int(identyfikatorSerwera), zawartośćStrony) for identyfikatorSerwera in serwery]
+			await asyncio.gather(*zadania, return_exceptions=True)
+		await asyncio.sleep(300)
+
+async def sprawdźSerwer(identyfikatorSerwera, zawartośćStrony):
+	async with blokadaKonfiguracji:
+		konfiguracjaSerwera = (konfiguracja.get("serwery", {}) or {}).get(str(identyfikatorSerwera), {}).copy()
+	identyfikatorKanału = konfiguracjaSerwera.get("identyfikator-kanalu")
+
+	if not identyfikatorKanału:
+		logiKonsoli.warning(f"Nie ustawiono ID kanału dla serwera o ID {identyfikatorSerwera}.")
+		return
+
+	try:
+		kanał = bot.get_channel(int(identyfikatorKanału))
+	except (TypeError, ValueError):
+		logiKonsoli.warning(f"Nieprawidłowy identyfikator kanału '{identyfikatorKanału}' dla serwera o ID {identyfikatorSerwera}.")
+		return
+
+	if not kanał:
+		logiKonsoli.warning(f"Nie znaleziono kanału z ID {identyfikatorKanału} dla serwera o ID {identyfikatorSerwera}.")
+		return
+
+	logiKonsoli.debug(f"Sprawdzanie aktualizacji dla serwera o ID {identyfikatorSerwera}.")
+	try:
+		wybraneKlasy = konfiguracjaSerwera.get("wybrane-klasy", [])
+		wybraniNauczyciele = konfiguracjaSerwera.get("wybrani-nauczyciele", [])
+		informacjeDodatkowe, aktualneWpisyZastępstw = wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele)
+
+		hashAktualnychInformacjiDodatkowych = obliczHash(informacjeDodatkowe)
+		hashAktualnychWpisówZastępstw = obliczHash(aktualneWpisyZastępstw)
+
+		poprzednieDane = await zarządzajPlikiemDanych(identyfikatorSerwera)
+		if not isinstance(poprzednieDane, dict):
+			poprzednieDane = {}
+		hashPoprzednichInformacjiDodatkowych = poprzednieDane.get("hash-informacji-dodatkowych", "")
+		hashPoprzednichWpisówZastępstw = poprzednieDane.get("hash-wpisow-zastepstw", "")
+
+		zmiana = (hashAktualnychInformacjiDodatkowych != hashPoprzednichInformacjiDodatkowych or hashAktualnychWpisówZastępstw != hashPoprzednichWpisówZastępstw)
+
+		if zmiana:
+			logiKonsoli.info(f"Treść uległa zmianie dla serwera o ID {identyfikatorSerwera}. Wysyłam nowe aktualizacje.")
+			aktualnyCzas = datetime.now(pytz.timezone("Europe/Warsaw")).strftime("%d-%m-%Y %H:%M:%S")
+			sukces = await wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas)
+
+			if sukces:
+				noweDane = {
+					"hash-informacji-dodatkowych": hashAktualnychInformacjiDodatkowych,
+					"hash-wpisow-zastepstw": hashAktualnychWpisówZastępstw,
+				}
+				await zarządzajPlikiemDanych(identyfikatorSerwera, noweDane)
+			else:
+				logiKonsoli.error(f"Nie udało się wysłać wszystkich wiadomości dla serwera o ID {identyfikatorSerwera}, hash nie zostanie zaktualizowany.")
+		else:
+			logiKonsoli.debug(f"Treść się nie zmieniła dla serwera o ID {identyfikatorSerwera}. Brak nowych aktualizacji.")
+	except Exception as e:
+		logiKonsoli.exception(f"Błąd podczas przetwarzania aktualizacji dla serwera o ID {identyfikatorSerwera}. Więcej informacji: {e}")
+
+# Funkcja wysyłająca aktualizacje
+async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas):
+	opisTylkoDlaInformacjiDodatkowych = f"**Dodatkowe informacje zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które zostały umieszczone przed zastępstwami. Nie znaleziono dla Ciebie żadnych zastępstw, więc nie dostaniesz powiadomienia."
+	opisDlaInformacjiDodatkowych = f"**Dodatkowe informacje zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które zostały umieszczone przed zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością."
+
+	try:
+		ostatniaWiadomość = None
+		if informacjeDodatkowe and not aktualneWpisyZastępstw:
+			embed = discord.Embed(
+				title="**Zastępstwa zostały zaktualizowane!**",
+				description=opisTylkoDlaInformacjiDodatkowych,
+				color=discord.Color(0xca4449)
+			)
+			embed.set_footer(text=f"Czas aktualizacji: {aktualnyCzas}\nStworzone z ❤️ przez Kacpra Górkę!")
+			await kanał.send(embed=embed)
+
+		elif (informacjeDodatkowe and aktualneWpisyZastępstw) or (aktualneWpisyZastępstw):
+			if kanał.permissions_for(kanał.guild.me).mention_everyone:
+				wyślijPing = await kanał.send("@everyone Zastępstwa zostały zaktualizowane!", allowed_mentions=discord.AllowedMentions(everyone=True))
+				await asyncio.sleep(5)
+				try:
+					await wyślijPing.delete()
+				except Exception:
+					pass
+			else:
+				logiKonsoli.warning("Brak pozwolenia na @everyone. Ping został pominięty.")
+
+			embed = discord.Embed(
+				title="**Zastępstwa zostały zaktualizowane!**",
+				description=opisDlaInformacjiDodatkowych,
+				color=discord.Color(0xca4449)
+			)
+			embed.set_footer(text=f"Czas aktualizacji: {aktualnyCzas}\nStworzone z ❤️ przez Kacpra Górkę!")
+			await kanał.send(embed=embed)
+
+			for tytuł, wpisyZastępstw in aktualneWpisyZastępstw:
+				embed = discord.Embed(
+					title=f"**{tytuł}**",
+					description="\n\n".join(wpisyZastępstw),
+					color=discord.Color(0xca4449)
+				)
+				embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
+				ostatniaWiadomość = await kanał.send(embed=embed)
+
+		if ostatniaWiadomość:
+			await ostatniaWiadomość.add_reaction("❤️")
+		return True
+	except discord.DiscordException as e:
+		logiKonsoli.exception(f"Błąd podczas wysyłania wiadomości. Więcej informacji: {e}")
+		return False
+	except Exception as e:
+		logiKonsoli.exception(f"Niespodziewany błąd podczas wysyłania wiadomości. Więcej informacji: {e}")
+		return False
+
+# Funkcja usuwająca serwer z konfiguracji po wyrzuceniu bota
+@bot.event
+async def on_guild_remove(guild):
+	await usuńSerwerZKonfiguracji(guild.id)
 
 # Funkcja wysyłająca instrukcję administratorom serwera
 @bot.event
 async def on_guild_join(guild):
-	admins = [member for member in guild.members if member.guild_permissions.administrator and not member.bot]
-	for admin in admins:
-		embed = discord.Embed(
-			title="**Cześć! Nadszedł czas na skonfigurowanie bota!**",
-			description=f"**Informacja wstępna:**\nBot został dodany do serwera **{guild.name}**, a z racji, że jesteś jego administratorem, to dostajesz tę wiadomość.\n\n**Ważne informacje:**\nNa początek musisz upewnić się, że serwer, do którego dołączył bot, jest dodany do listy dozwolonych serwerów. W razie wątpliwości czy serwer na takiej liście się znajduje, skontaktuj się z administratorem bota. Wszystkie ważne informacje dotyczące funkcjonalności bota oraz jego administratorów znajdziesz, używając komendy `/informacje`.\n\n> **Jeżeli znajdziesz lub doświadczysz jakiegokolwiek błędu, [utwórz issue]({GITHUB_ISSUES}). Jest to bardzo ważne dla prawidłowego funkcjonowania bota!**\n\n**Konfiguracja bota:**\nKonfiguracja bota zaczyna się od utworzenia dedykowanego kanału tekstowego, na który będą wysyłane zastępstwa, a następnie użycia komendy `/skonfiguruj`, gdzie zostaniesz przeprowadzony przez wygodny i prosty konfigurator. W razie jakichkolwiek pytań odsyłam również do issues na GitHubie.",
-			color=EMBEDS_COLOR
-		)
-		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-		try:
-			await admin.send(embed=embed)
-			console_logger.info(f"Wiadomość z instrukcjami została wysłana do {admin.name}, który jest administratorem na serwerze {guild.name}.")
-		except discord.Forbidden as e:
-			console_logger.error(f"Nie można wysłać wiadomości do {admin.name}, który jest administratorem na serwerze {guild.name}. Więcej informacji: {e}")
-
-# Funkcja sprawdzająca aktualizacje
-async def check_for_updates():
-	await bot.wait_until_ready()
-	while not bot.is_closed():
-		current_time = get_current_time()
-		for guild_id_str in config.get("allowed_guilds", []):
-			guild_id = int(guild_id_str)
-			channel_id = guild_config.get(str(guild_id), {}).get("channel_id")
-			previous_data = manage_data_file(guild_id)
-			
-			if not channel_id:
-				console_logger.warning(f"Nie ustawiono ID kanału dla serwera {guild_id}.")
-				continue
-
-			channel = bot.get_channel(int(channel_id))
-			if not channel:
-				console_logger.warning(f"Nie znaleziono kanału z ID {channel_id} dla serwera {guild_id}.")
-				continue
-			console_logger.info(f"Sprawdzanie aktualizacji dla serwera {guild_id}.")
-
-			try:
-				soup = fetch_website_content(URL)
-				if soup is None:
-					console_logger.warning("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
-					continue
-
-				filter_classes = guild_config.get(str(guild_id), {}).get("selected_classes", [])
-				additional_info, current_entries, no_class_entries_by_teacher = extract_data_from_html(soup, filter_classes, classes_by_grade)
-
-				# Kalkulacja hashu nowo pobranych danych
-				current_additional_info_hash = calculate_hash_from_data(additional_info)
-				current_entries_hash = calculate_hash_from_data(current_entries)
-				current_no_class_entries_by_teacher_hash = calculate_hash_from_data(no_class_entries_by_teacher)
-
-				# Pobieranie starego hashu z pliku danych
-				previous_additional_info_hash = previous_data.get("additional_info_hash", "")
-				previous_entries_hash = previous_data.get("entries_hash", "")
-				previous_no_class_entries_by_teacher_hash = previous_data.get("no_class_entries_by_teacher_hash", "")
-
-				# Porównywanie nowego hashu ze starym hashem
-				additional_info_changed = current_additional_info_hash != previous_additional_info_hash
-				entries_changed = current_entries_hash != previous_entries_hash
-				no_class_entries_by_teacher_changed = current_no_class_entries_by_teacher_hash != previous_no_class_entries_by_teacher_hash
-
-				if additional_info_changed or entries_changed or no_class_entries_by_teacher_changed:
-					console_logger.info("Treść uległa zmianie. Wysyłam nowe aktualizacje.")
-					try:
-						if additional_info_changed and not entries_changed and not no_class_entries_by_teacher_changed:
-							await send_updates(channel, additional_info, None, None, current_time)
-
-						elif entries_changed or no_class_entries_by_teacher_changed:
-							await send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time)
-
-						new_data = {
-							"additional_info_hash": current_additional_info_hash,
-							"entries_hash": current_entries_hash,
-							"no_class_entries_by_teacher_hash": current_no_class_entries_by_teacher_hash
-						}
-						manage_data_file(guild_id, new_data)
-					except discord.DiscordException as e:
-						console_logger.error(f"Nie udało się wysłać wszystkich wiadomości, hash nie zostanie zaktualizowany. Więcej informacji: {e}")
-				else:
-					console_logger.info("Treść się nie zmieniła. Brak nowych aktualizacji.")
-
-				await asyncio.sleep(random.uniform(10, 15))
-			except Exception as e:
-				console_logger.error(f"Błąd podczas przetwarzania aktualizacji: {e}")
-
-		await asyncio.sleep(CHECK_INTERVAL)
-
-# Funkcja wysyłająca aktualizacje
-async def send_updates(channel, additional_info, current_entries, no_class_entries_by_teacher, current_time):
-	description_only_for_additional_info = f"**Dodatkowe informacje zastępstw:**\n{additional_info}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które zostały umieszczone przed zastępstwami. Nie znaleziono dla twojej klasy żadnych zastępstw, więc nie dostaniesz powiadomienia."
-	description_for_additional_info = f"**Dodatkowe informacje zastępstw:**\n{additional_info}\n\n**Informacja o tej wiadomości:**\nW tej wiadomości znajdują się informacje dodatkowe, które zostały umieszczone przed zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością."
-	description_for_entries = "\n### Informacja o tej wiadomości:\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!"
-
-	try:
-		last_message = None
-		if additional_info and not current_entries and not no_class_entries_by_teacher:
-			embed = discord.Embed(
-				title="**Zastępstwa zostały zaktualizowane!**",
-				description=description_only_for_additional_info,
-				color=EMBEDS_COLOR
-			)
-			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!")
-			await channel.send(embed=embed)
-
-		elif (additional_info and no_class_entries_by_teacher and not current_entries) or (no_class_entries_by_teacher and not current_entries):
-			ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
-			ping_msg = await channel.send(ping_message)
-			await asyncio.sleep(5)
-			await ping_msg.delete()
-
-			embed = discord.Embed(
-				title="**Zastępstwa zostały zaktualizowane!**",
-				description=description_for_additional_info,
-				color=EMBEDS_COLOR
-			)
-			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!")
-			await channel.send(embed=embed)
-
-			for teacher, entries in no_class_entries_by_teacher.items():
-				embed = discord.Embed(
-					title=f"**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**",
-					description="\n\n".join(entries) + description_for_entries,
-					color=EMBEDS_COLOR
-				)
-				embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
-				await channel.send(embed=embed)
-
-		elif (additional_info and current_entries) or (current_entries):
-			ping_message = "@everyone Zastępstwa zostały zaktualizowane!"
-			ping_msg = await channel.send(ping_message)
-			await asyncio.sleep(5)
-			await ping_msg.delete()
-
-			embed = discord.Embed(
-				title="**Zastępstwa zostały zaktualizowane!**",
-				description=description_for_additional_info,
-				color=EMBEDS_COLOR
-			)
-			embed.set_footer(text=f"Czas aktualizacji: {current_time}\nStworzone z ❤️ przez Kacpra Górkę!")
-			await channel.send(embed=embed)
-
-			if no_class_entries_by_teacher:
-				for teacher, entries in no_class_entries_by_teacher.items():
-					embed = discord.Embed(
-						title=f"**{teacher} - Zastępstwa z nieprzypisanymi klasami! (:exclamation:)**",
-						description="\n\n".join(entries) + description_for_entries,
-						color=EMBEDS_COLOR
-					)
-					embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
-					await channel.send(embed=embed)
-
-			for title, entries in current_entries:
-				embed = discord.Embed(
-					title=f"**{title}**",
-					description="\n\n".join(entries),
-					color=EMBEDS_COLOR
-				)
-				embed.set_footer(text="Każdy kolejny nauczyciel, za którego wpisywane są zastępstwa, jest załączany w oddzielnej wiadomości.")
-				last_message = await channel.send(embed=embed)
-
-		if last_message:
-			await last_message.add_reaction("❤️")
-
-	except discord.DiscordException as e:
-		console_logger.error(f"Błąd podczas wysyłania wiadomości: {e}")
-		raise
-
-# Logowanie komend
-def log_command(interaction: discord.Interaction, success: bool, error_message: str = None):
-	status = "pomyślnie" if success else "niepomyślnie"
-	error_info = f" ({error_message})" if error_message else ""
-	log_message = (
-		f"Użytkownik: {interaction.user} (ID: {interaction.user.id}) "
-		f"użył komendy '{interaction.command.name}' "
-		f"w serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) "
-		f"na kanale '{interaction.channel.name}' (ID: {interaction.channel.id}). "
-		f"Komenda wykonana {status}.{error_info}"
+	embedWysłanyNaDm = discord.Embed(
+		title="**Cześć! Nadszedł czas na skonfigurowanie bota!**",
+		description=f"**Informacja wstępna**\nBot został dodany do serwera **{guild.name}**, a z racji, że jesteś jego administratorem, to dostajesz tę wiadomość. Wszystkie ważne informacje dotyczące bota oraz jego administratorów znajdziesz, używając polecenia `/informacje`.\n\n> **Jeżeli znajdziesz, doświadczysz jakiegokolwiek błędu lub chcesz zgłosić swoją propozycję, [utwórz issue](https://github.com/kacpergorka/Zastepstwa/issues). Jest to bardzo ważne dla prawidłowego funkcjonowania bota!**\n\n**Konfiguracja bota**\nKonfiguracja bota zaczyna się od utworzenia dedykowanego kanału tekstowego, na który po konfiguracji będą wysyłane zastępstwa, a następnie użycia polecenia `/skonfiguruj`, gdzie zostaniesz przeprowadzony przez wygodny i intuicyjny konfigurator. W razie jakichkolwiek pytań odsyłam również do issues na GitHubie.",
+		color=discord.Color(0xca4449)
 	)
-	commands_logger.info(log_message)
+	embedWysłanyNaDm.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
+
+	embedWysłanyNaSerwer = discord.Embed(
+		title="**Cześć! Nadszedł czas na skonfigurowanie bota!**",
+		description=f"**Informacja wstępna**\nBot został dodany do serwera **{guild.name}**, a z racji, że żaden administrator tego serwera nie ma włączonych wiadomości prywatnych, to wiadomość ta zostaje dostarczona na serwer. Wszystkie ważne informacje dotyczące bota oraz jego administratorów znajdziesz, używając polecenia `/informacje`.\n\n> **Jeżeli znajdziesz, doświadczysz jakiegokolwiek błędu lub chcesz zgłosić swoją propozycję, [utwórz issue](https://github.com/kacpergorka/Zastepstwa/issues). Jest to bardzo ważne dla prawidłowego funkcjonowania bota!**\n\n**Konfiguracja bota**\nKonfiguracja bota zaczyna się od utworzenia dedykowanego kanału tekstowego, na który po konfiguracji będą wysyłane zastępstwa, a następnie użycia polecenia `/skonfiguruj`, gdzie zostaniesz przeprowadzony przez wygodny i intuicyjny konfigurator. W razie jakichkolwiek pytań odsyłam również do issues na GitHubie.",
+		color=discord.Color(0xca4449)
+	)
+	embedWysłanyNaSerwer.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
+
+	administratorzy = [członek for członek in guild.members if członek.guild_permissions.administrator and not członek.bot]
+	dostarczoneWiadomości = 0
+
+	for administrator in administratorzy:
+		try:
+			await administrator.send(embed=embedWysłanyNaDm)
+			dostarczoneWiadomości += 1
+			logiKonsoli.info(f"Wiadomość z instrukcjami została wysłana do {administrator.name}, który jest administratorem na serwerze {guild.name}.")
+		except discord.Forbidden as e:
+			logiKonsoli.warning(f"Nie można wysłać wiadomości do {administrator.name}, który jest administratorem na serwerze {guild.name}. Więcej informacji: {e}")
+	if dostarczoneWiadomości == 0 and guild.text_channels:
+		kanał = discord.utils.get(guild.text_channels, permissions__send_messages=True)
+		try:
+			await kanał.send(embed=embedWysłanyNaSerwer)
+			logiKonsoli.info(f"Wiadomość z instrukcjami została wysłana na kanał #{kanał.name} o ID {kanał.id} na serwerze {guild.name}, ponieważ żaden administrator nie odebrał prywatnej wiadomości.")
+		except discord.DiscordException as e:
+				logiKonsoli.exception(f"Nie można wysłać wiadomości na serwer {guild.name}. Więcej informacji: {e}")
 
 # /skonfiguruj
-class ClassGroupSelect(discord.ui.Select):
-	def __init__(self, classes_by_grade):
-		options = [
-			discord.SelectOption(label="Klasy pierwsze", value="1", description="Wybierz kategorię z klasami pierwszymi"),
-			discord.SelectOption(label="Klasy drugie", value="2", description="Wybierz kategorię z klasami drugimi"),
-			discord.SelectOption(label="Klasy trzecie", value="3", description="Wybierz kategorię z klasami trzecimi"),
-			discord.SelectOption(label="Klasy czwarte", value="4", description="Wybierz kategorię z klasami czwartymi"),
-			discord.SelectOption(label="Klasy piąte", value="5", description="Wybierz kategorię z klasami piątymi"),
-		]
-		super().__init__(placeholder="Wybierz kategorie", min_values=1, max_values=3, options=options)
-		self.classes_by_grade = classes_by_grade
+def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
+	serwery = konfiguracja.setdefault("serwery", {})
+	if identyfikatorSerwera not in serwery:
+		serwery[identyfikatorSerwera] = {
+			"identyfikator-kanalu": None,
+			"wybrane-klasy": [],
+			"wybrani-nauczyciele": []
+		}
+	else:
+		dane = serwery[identyfikatorSerwera]
+		serwery[identyfikatorSerwera] = {
+			"identyfikator-kanalu": dane.get("identyfikator-kanalu"),
+			"wybrane-klasy": dane.get("wybrane-klasy", []),
+			"wybrani-nauczyciele": dane.get("wybrani-nauczyciele", [])
+		}
+	return serwery[identyfikatorSerwera]
 
-	async def callback(self, interaction: discord.Interaction):
-		all_classes = []
-		for grade in self.values:
-			all_classes.extend(self.classes_by_grade.get(grade, []))
-		
-		view = ClassDetailView(all_classes)
+async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
+	identyfikatorSerwera = str(identyfikatorSerwera)
+	lokalneDane = dict(dane)
+
+	async with blokadaKonfiguracji:
+		daneSerwera = pobierzSłownikSerwera(identyfikatorSerwera)
+
+		for klucz in ("wybrane-klasy", "wybrani-nauczyciele"):
+			if klucz in lokalneDane:
+				nowy = lokalneDane.pop(klucz)
+				istnieje = daneSerwera.get(klucz) or []
+				if not isinstance(istnieje, list):
+					istnieje = list(istnieje)
+
+				if nowy is None:
+					nowaLista = []
+				elif isinstance(nowy, list):
+					nowaLista = nowy
+				else:
+					nowaLista = [nowy]
+
+				nowaLista = [str(element) for element in nowaLista if element is not None]
+				daneSerwera[klucz] = usuńDuplikaty(istnieje + nowaLista)
+
+		if "identyfikator-kanalu" in lokalneDane:
+			daneSerwera["identyfikator-kanalu"] = lokalneDane.pop("identyfikator-kanalu")
+
+		for klucz, wartość in lokalneDane.items():
+			daneSerwera[klucz] = wartość
+
+		snapshot = copy.deepcopy(konfiguracja)
+
+	await zapiszKonfiguracje(snapshot)
+
+async def wyczyśćFiltry(identyfikatorSerwera: str):
+	identyfikatorSerwera = str(identyfikatorSerwera)
+	async with blokadaKonfiguracji:
+		daneSerwera = pobierzSłownikSerwera(identyfikatorSerwera)
+		daneSerwera["identyfikator-kanalu"] = None
+		daneSerwera["wybrane-klasy"] = []
+		daneSerwera["wybrani-nauczyciele"] = []
+		snapshot = copy.deepcopy(konfiguracja)
+	await zapiszKonfiguracje(snapshot)
+
+def kluczeNormalizacyjne(tekst: str) -> list[str]:
+	tekstNormalizowany = normalizujTekst(tekst)
+	brakSpacji = re.sub(r"\s+", "", tekstNormalizowany)
+	return [tekstNormalizowany, brakSpacji]
+
+def usuńDuplikaty(sekwencja):
+	widziane = set()
+	wynik = []
+	for element in sekwencja:
+		if element not in widziane:
+			wynik.append(element)
+			widziane.add(element)
+	return wynik
+
+def zbudujIndeks(listaDoDopasowania: list[str]):
+	mapaKluczy = defaultdict(list)
+	normalizowaneDoOryginalnych = defaultdict(list)
+	listaNormalizowanych = []
+
+	for element in listaDoDopasowania:
+		pełnaNorma = re.sub(r"\s+", "", normalizujTekst(element))
+		normalizowaneDoOryginalnych[pełnaNorma].append(element)
+		listaNormalizowanych.append(pełnaNorma)
+		for klucz in kluczeNormalizacyjne(element):
+			mapaKluczy [klucz].append(element)
+
+	return mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych
+
+def dopasujWpisyDoListy(wpisy: list[str], listaDoDopasowania: list[str], cutoff: float = 0.6):
+	mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych = zbudujIndeks(listaDoDopasowania)
+
+	idealneDopasowania = []
+	sugestie = {}
+	nieZnaleziono = []
+
+	for wpis in wpisy:
+		kluczeWpisu = kluczeNormalizacyjne(wpis)
+		znalezioneIdealneDopasowania = None
+		for klucz in kluczeWpisu:
+			if klucz in mapaKluczy :
+				znalezioneIdealneDopasowania = mapaKluczy [klucz][0]
+				break
+		if znalezioneIdealneDopasowania:
+			if znalezioneIdealneDopasowania not in idealneDopasowania:
+				idealneDopasowania.append(znalezioneIdealneDopasowania)
+			continue
+
+		# Dopasowanie przybliżone
+		normaWpisu = re.sub(r"\s+", "", normalizujTekst(wpis))
+		normaKandydatów = difflib.get_close_matches(normaWpisu, listaNormalizowanych, n=1, cutoff=cutoff)
+		if normaKandydatów:
+			normaKandydata = normaKandydatów[0]
+			kandydant = normalizowaneDoOryginalnych[normaKandydata][0]
+			sugestie[wpis] = kandydant
+		else:
+			nieZnaleziono.append(wpis)
+
+	return idealneDopasowania, sugestie, nieZnaleziono
+
+def pobierzListęKlas() -> list[str]:
+	suroweDane = konfiguracja.get("lista-klas", {})
+	if isinstance(suroweDane, dict):
+		return [klasa for grupy in suroweDane.values() for klasa in grupy]
+	if isinstance(suroweDane, list):
+		return suroweDane
+	return []
+
+class WidokPonownegoWprowadzania(discord.ui.View):
+	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, timeout: float = 120.0):
+		super().__init__(timeout=timeout)
+		self.typDanych = typDanych
+		self.lista = listaDoDopasowania
+		self.wiadomość = wiadomość
+		self.identyfikatorKanału = identyfikatorKanału
+
+	@discord.ui.button(label="Wprowadź ponownie", style=discord.ButtonStyle.secondary)
+	async def wprowadźPonownie(self, interaction: discord.Interaction, button: discord.ui.Button):
+		try:
+			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd po kliknięciu przycisku 'Wprowadź ponownie' (w class WidokPonownegoWprowadzania) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			with contextlib.suppress(Exception):
+				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+
+class WidokAkceptacjiSugestii(discord.ui.View):
+	def __init__(self, typDanych: str, identyfikatorSerwera: str, idealneDopasowania: list[str], sugestie: dict[str, str], listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, timeout: float = 120.0):
+		super().__init__(timeout=timeout)
+		self.typDanych = typDanych
+		self.identyfikatorSerwera = identyfikatorSerwera
+		self.idealneDopasowania = idealneDopasowania[:]
+		self.sugestie = sugestie.copy()
+		self.lista = listaDoDopasowania
+		self.wiadomość = wiadomość
+		self.identyfikatorKanału = identyfikatorKanału
+
+	@discord.ui.button(label="Akceptuj sugestie", style=discord.ButtonStyle.success)
+	async def akceptujSugestie(self, interaction: discord.Interaction, button: discord.ui.Button):
+		try:
+			finalne = []
+			for dopasowanie in self.idealneDopasowania:
+				if dopasowanie not in finalne:
+					finalne.append(dopasowanie)
+			for sugestia in self.sugestie.values():
+				if sugestia not in finalne:
+					finalne.append(sugestia)
+			finalne = usuńDuplikaty(finalne)
+
+			kluczFiltru = "wybrane-klasy" if self.typDanych == "klasy" else "wybrani-nauczyciele"
+			await zapiszKluczeSerwera(self.identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, kluczFiltru: finalne})
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd po kliknięciu przycisku 'Akceptuj sugestie' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			with contextlib.suppress(Exception):
+				await interaction.followup.send("Wystąpił błąd podczas akceptacji danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+
+
+		konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
+
+		kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
+		klasy = ", ".join(re.sub(r'(\d)\s+([A-Z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
+		nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
+
 		embed = discord.Embed(
-			title="**Dalsza konfiguracja**",
-			description="Teraz wybierz klasy, których zastępstwa mają być wysyłane na wybrany przez ciebie kanał.",
-			color=EMBEDS_COLOR
-			)
-		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-		await interaction.response.edit_message(
-			embed=embed,
-			view=view
-			)
-
-class ClassDetailSelect(discord.ui.Select):
-	def __init__(self, classes):
-		options = [discord.SelectOption(label=cls, value=cls) for cls in classes]
-		super().__init__(placeholder="Wybierz klasy", min_values=1, max_values=len(classes), options=options)
-
-	async def callback(self, interaction: discord.Interaction):
-		guild_id = str(interaction.guild.id)
-		channel_id = guild_config.get(guild_id, {}).get("channel_id")
-		
-		if guild_id not in guild_config:
-			guild_config[guild_id] = {}
-		guild_config[guild_id]["selected_classes"] = self.values
-		save_config(config)
-
-		embed = discord.Embed(title="**Podsumowanie Twoich wyborów**", color=EMBEDS_COLOR)
-		if channel_id:
-			channel = interaction.guild.get_channel(int(channel_id))
-			embed.add_field(name="Wybrany kanał:", value=channel.mention if channel else "**Nie znaleziono kanału**")
-		else:
-			embed.add_field(name="Wybrany kanał:", value="**Brak**")
-
-		classes_summary = ", ".join(f"**{cls}**" for cls in self.values) if self.values else "**Brak**"
-		embed.add_field(name="Wybrane klasy:", value=classes_summary)
-		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-		await interaction.response.edit_message(
-			embed=embed,
-			view=None
+			title="Zapisano wprowadzone dane",
+			description="Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja twojego serwera została wyświetlona poniżej.",
+			color=discord.Color(0xca4449)
 		)
 
-class ClassDetailView(discord.ui.View):
-	def __init__(self, classes):
-		super().__init__()
-		self.add_item(ClassDetailSelect(classes))
+		embed.add_field(name="Kanał tekstowy:", value=kanał)
+		embed.add_field(name="Wybrane klasy:", value=klasy)
+		embed.add_field(name="Wybrani nauczyciele:", value=nauczyciele)
+		embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
+		await interaction.response.edit_message(embed=embed, view=None)
 
-class ClearFilterButton(discord.ui.Button):
+	@discord.ui.button(label="Wprowadź ponownie", style=discord.ButtonStyle.secondary)
+	async def wprowadźPonownie(self, interaction: discord.Interaction, button: discord.ui.Button):
+		try:
+			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd po kliknięciu przycisku 'Wprowadź ponownie' (w class WidokAkceptacjiSugestii) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			with contextlib.suppress(Exception):
+				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+
+class ModalWybierania(discord.ui.Modal):
+	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str):
+		super().__init__(title="Wprowadź dane do formularza")
+		self.typDanych = typDanych
+		self.lista = listaDoDopasowania
+		self.wiadomość = wiadomość
+		self.identyfikatorKanału = identyfikatorKanału
+
+		placeholder = "np. 1A, 2D, 3F" if typDanych == "klasy" else "np. A. Kowalski, W. Nowak"
+		label = "Wprowadź klasy (oddzielaj przecinkami)." if typDanych == "klasy" else "Wprowadź nauczycieli (oddzielaj przecinkami)."
+
+		self.pole = discord.ui.TextInput(
+			label=label,
+			style=discord.TextStyle.long,
+			placeholder=placeholder,
+		)
+		self.add_item(self.pole)
+
+	async def on_submit(self, interaction: discord.Interaction):
+		try:
+			identyfikatorSerwera = str(interaction.guild.id)
+			suroweDane = self.pole.value
+			wpisy = [element.strip() for element in re.split(r",|;", suroweDane) if element.strip()]
+
+			idealneDopasowania, sugestie, nieZnaleziono = dopasujWpisyDoListy(wpisy, self.lista, cutoff=0.6)
+
+			if nieZnaleziono:
+				embed = discord.Embed(
+					title="Nie znaleziono wprowadzonych danych.",
+					description=(
+						"Nie znaleziono odpowiadających wpisów dla następujących danych:\n"
+						+ "\n".join(f"- **{wprowadzoneDane}**" for wprowadzoneDane in nieZnaleziono)
+						+ "\n\nProszę spróbować ponownie, naciskając przycisk **Wprowadź ponownie**."
+					),
+					color=discord.Color(0xca4449),
+				)
+				view = WidokPonownegoWprowadzania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału)
+				await interaction.response.defer()
+				await self.wiadomość.edit(embed=embed, view=view)
+				return
+
+			if sugestie:
+				opis = ""
+				if idealneDopasowania:
+					opis += "**Znalezione dokładne dopasowania:**\n" + ", ".join(f"**{dopasowanie}**" for dopasowanie in idealneDopasowania) + "\n\n"
+				opis += "**Proponowane dopasowania:**\n"
+				for orginalne, sugestia in sugestie.items():
+					opis += f"- **{orginalne}**  →  **{sugestia}**\n"
+				opis += "\nJeśli akceptujesz propozycje, naciśnij przycisk **Akceptuj sugestie**. Jeśli chcesz wpisać ponownie, naciśnij przycisk **Wprowadź ponownie**."
+
+				embed = discord.Embed(
+					title=f"Sugestie dopasowania wprowadzonych danych",
+					description=opis,
+					color=discord.Color(0xca4449),
+				)
+				view = WidokAkceptacjiSugestii(self.typDanych, identyfikatorSerwera, idealneDopasowania, sugestie, self.lista, self.wiadomość, self.identyfikatorKanału)
+				await interaction.response.defer()
+				await self.wiadomość.edit(embed=embed, view=view)
+				return
+
+			finalne = usuńDuplikaty(idealneDopasowania)
+
+			kluczFiltru = "wybrane-klasy" if self.typDanych == "klasy" else "wybrani-nauczyciele"
+			await zapiszKluczeSerwera(identyfikatorSerwera, {
+				"identyfikator-kanalu": self.identyfikatorKanału,
+				kluczFiltru: finalne
+			})
+
+			konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
+
+			kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
+			klasy = ", ".join(re.sub(r'(\d)\s+([A-Z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
+			nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
+
+			embed = discord.Embed(
+				title="Zapisano wprowadzone dane",
+				description="Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja twojego serwera została wyświetlona poniżej.",
+				color=discord.Color(0xca4449)
+			)
+
+			embed.add_field(name="Kanał tekstowy:", value=kanał)
+			embed.add_field(name="Wybrane klasy:", value=klasy)
+			embed.add_field(name="Wybrani nauczyciele:", value=nauczyciele)
+			embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
+
+			await interaction.response.defer()
+			await self.wiadomość.edit(embed=embed, view=None)
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd po kliknięciu przycisku wysyłającego dane do zapisu (on_submit) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			with contextlib.suppress(Exception):
+				await interaction.response.send_message("Wystąpił błąd podczas przetwarzania danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+
+class PrzyciskUczeń(discord.ui.Button):
+	def __init__(self, identyfikatorKanału: str):
+		super().__init__(label="Uczeń", style=discord.ButtonStyle.primary)
+		self.identyfikatorKanału = identyfikatorKanału
+
+	async def callback(self, interaction: discord.Interaction):
+		try:
+			listaKlas = pobierzListęKlas()
+			await interaction.response.send_modal(ModalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału))
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd po kliknięciu przycisku 'Uczeń' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			with contextlib.suppress(Exception):
+				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+
+class PrzyciskNauczyciel(discord.ui.Button):
+	def __init__(self, identyfikatorKanału: str):
+		super().__init__(label="Nauczyciel", style=discord.ButtonStyle.primary)
+		self.identyfikatorKanału = identyfikatorKanału
+
+	async def callback(self, interaction: discord.Interaction):
+		try:
+			listaNauczycieli = konfiguracja.get("lista-nauczycieli", [])
+			await interaction.response.send_modal(ModalWybierania("nauczyciele", listaNauczycieli, interaction.message, self.identyfikatorKanału))
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd po kliknięciu przycisku 'Nauczyciel' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			with contextlib.suppress(Exception):
+				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+
+class PrzyciskWyczyśćFiltry(discord.ui.Button):
 	def __init__(self):
-		super().__init__(label="Wysyłaj wszystkie zastępstwa", style=discord.ButtonStyle.secondary)
+		super().__init__(label="Wyczyść filtry", style=discord.ButtonStyle.danger)
 
 	async def callback(self, interaction: discord.Interaction):
-		guild_id = str(interaction.guild.id)
-		if guild_id in guild_config:
-			guild_config[guild_id].pop("selected_classes", None)
-			save_config(config)
+		try:
+			identyfikatorSerwera = str(interaction.guild.id)
+			await wyczyśćFiltry(identyfikatorSerwera)
 
-		embed = discord.Embed(title="**Podsumowanie Twoich wyborów**", color=EMBEDS_COLOR)
-		if "channel_id" in guild_config.get(guild_id, {}):
-			channel_id = guild_config[guild_id]["channel_id"]
-			channel = interaction.guild.get_channel(int(channel_id))
-			embed.add_field(name="Wybrany kanał:", value=channel.mention if channel else "**Nie znaleziono kanału**")
-		else:
-			embed.add_field(name="Wybrany kanał:", value="**Brak**")
+			embed = discord.Embed(
+				title="Wyczyszczono konfigurację serwera",
+				description="Twój serwer nie będzie dostawał powiadomień z nowymi zastępstwami do czasu ponownej ich konfiguracji.",
+				color=discord.Color(0xca4449),
+			)
+			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
+			await interaction.response.edit_message(embed=embed, view=None)
+		except Exception as e:
+			logiKonsoli.exception(f"Błąd po kliknięciu przycisku 'Wyczyść filtry' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			with contextlib.suppress(Exception):
+				await interaction.followup.send("Wystąpił błąd podczas przetwarzania danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-		embed.add_field(name="Wybrane klasy:", value="**Wszystkie**")
-		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-		await interaction.response.edit_message(
-			embed=embed,
-			view=None
-		)
-
-class ClassView(discord.ui.View):
-	def __init__(self, classes_by_grade):
+class widokGłówny(discord.ui.View):
+	def __init__(self, identyfikatorKanału: str):
 		super().__init__()
-		self.add_item(ClassGroupSelect(classes_by_grade))
-		self.add_item(ClearFilterButton())
+		self.add_item(PrzyciskUczeń(identyfikatorKanału))
+		self.add_item(PrzyciskNauczyciel(identyfikatorKanału))
+		self.add_item(PrzyciskWyczyśćFiltry())
 
-@bot.tree.command(name="skonfiguruj", description="Skonfiguruj bota, który będzie informował o aktualizacji zastępstw.")
-@app_commands.describe(channel="Kanał, na który będą wysyłane aktualizacje zastępstw.")
-async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+@bot.tree.command(name="skonfiguruj", description="Skonfiguruj bota, który będzie wysyłał powiadomienia z nowymi zastępstwami.")
+@app_commands.guild_only()
+@app_commands.describe(kanał="Kanał tekstowy, na który będą wysyłane powiadomienia z zastępstwami.")
+async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChannel):
 	try:
 		if not interaction.user.guild_permissions.administrator:
 			embed = discord.Embed(
 				title="**Polecenie nie zostało wykonane!**",
-				description="Nie masz uprawnień do używania tej komendy, komendę tą może użyć wyłącznie administrator serwera. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
-				color=EMBEDS_COLOR
-				)
+				description="Nie masz uprawnień do używania tej komendy. Może jej użyć wyłącznie administrator serwera.",
+				color=discord.Color(0xca4449),
+			)
 			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-			await interaction.response.send_message(embed=embed)
-			log_command(interaction, success=False, error_message="Brak uprawnień.")
+			await interaction.response.send_message(embed=embed, ephemeral=True)
+			logujPolecenia(interaction, success=False, error_message="Brak uprawnień.")
 			return
 
-		if str(interaction.guild.id) not in config.get("allowed_guilds", []):
-			embed = discord.Embed(
-				title="**Polecenie nie zostało wykonane!**",
-				description="Nie masz uprawnień do używania tej komendy na tym serwerze, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
-				color=EMBEDS_COLOR
-				)
-			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-			await interaction.response.send_message(embed=embed)
-			log_command(interaction, success=False, error_message="Ten serwer nie znajduje się na liście dozwolonych serwerów.")
-			return
-
-		guild_config.setdefault(str(interaction.guild.id), {})["channel_id"] = str(channel.id)
-		save_config(config)
-
-		view = ClassView(classes_by_grade)
+		view = widokGłówny(identyfikatorKanału=str(kanał.id))
 		embed = discord.Embed(
-			title="**Ważna informacja! (:exclamation:)**",
-			description="Teraz musisz dokonać wyboru, czy chcesz dostawać zastępstwa dla wszystkich klas, czy może dla klas wybranych przez Ciebie. Jeżeli postanowiłeś, że chcesz wybrać niestandardowe klasy, wybierz kategorie z ich przedziałem, w przeciwnym razie naciśnij przycisk.",
-			color=EMBEDS_COLOR
-			)
-		embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-		await interaction.response.send_message(
-			embed=embed,
-			view=view
-			)
-		log_command(interaction, success=True)
-		
-	except Exception as e:
-		log_command(interaction, success=False, error_message=str(e))
-		await interaction.response.send_message(f"Wystąpił błąd: {str(e)}", ephemeral=True)
-		raise
-
-# /zarządzaj
-@bot.tree.command(name="zarządzaj", description="Dodaj lub usuń serwer z listy dozwolonych serwerów.")
-@app_commands.describe(dodaj_id="ID serwera, który chcesz dodać do listy dozwolonych serwerów.", usun_id="ID serwera, który chcesz usunąć z listy dozwolonych serwerów.")
-async def add_or_remove_server(interaction: discord.Interaction, dodaj_id: str = None, usun_id: str = None):
-	try:
-		# Sprawdza, czy użytkownik jest na liście dozwolonych użytkowników
-		if str(interaction.user.id) not in config.get("allowed_users", []):
-			embed = discord.Embed(
-				title="**Polecenie nie zostało wykonane!**",
-				description="Nie masz uprawnień do używania tej komendy, tej komendy może użyć wyłącznie uprawniona osoba. Jeżeli jesteś administartorem serwera i chcesz skonfigurować bota, użyj komendy `/skonfiguruj`. Jeżeli uważasz, że wystąpił błąd, skontaktuj się z administratorem bota. Wszystkie potrzebne informacje znajdziesz, używając komendy `/informacje`.",
-				color=EMBEDS_COLOR
-				)
-			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-			await interaction.response.send_message(embed=embed)
-			log_command(interaction, success=False, error_message="Brak uprawnień.")
-			return
-
-		# Sprawdza, czy podano obie opcje
-		if dodaj_id and usun_id:
-			embed = discord.Embed(
-				title="**Polecenie nie zostało wykonane!**",
-				description="Wykonana operacja jest niepoprawna. Możesz wybrać tylko jedną z obu dostępnych opcji.",
-				color=EMBEDS_COLOR
-				)
-			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-			await interaction.response.send_message(embed=embed)
-			log_command(interaction, success=False, error_message="Wybrano obie opcje w jednej komendzie.")
-			return
-
-		# Sprawdza, czy przynajmniej jedna opcja została podana
-		if not dodaj_id and not usun_id:
-			embed = discord.Embed(
-				title="**Polecenie nie zostało wykonane!**",
-				description="Wykonana operacja jest niepoprawna. Musisz wybrać co najmniej jedną z obu dostępnych opcji.",
-				color=EMBEDS_COLOR
-				)
-			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-			await interaction.response.send_message(embed=embed)
-			log_command(interaction, success=False, error_message="Nie wybrano żadnej z obu opcji.")
-			return
-
-		# Sprawdza, czy ID serwera to tylko cyfry
-		guild_id = dodaj_id or usun_id
-		if not guild_id.isdigit():
-			embed = discord.Embed(
-				title="**Polecenie nie zostało wykonane!**",
-				description=f"Podane ID serwera (`{guild_id}`) jest nieprawidłowe. ID serwera musi składać się wyłącznie z cyfr.",
-				color=EMBEDS_COLOR
-				)
-			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-			await interaction.response.send_message(embed=embed)
-			log_command(interaction, success=False, error_message="Nieprawidłowe ID serwera.")
-			return
-
-		# Obsługa dodania ID serwera
-		if dodaj_id and not usun_id:
-			if dodaj_id in config.get("allowed_guilds", []):
-				embed = discord.Embed(
-					title="**Polecenie nie zostało wykonane!**",
-					description="Wykonana operacja jest niepoprawna. Ten serwer znajduję się już na liście dozwolonych serwerów.",
-					color=EMBEDS_COLOR
-					)
-				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-				await interaction.response.send_message(embed=embed)
-				log_command(interaction, success=False, error_message="Ten serwer znajduję się już na liście dozwolonych serwerów.")
-			else:
-				config["allowed_guilds"].append(dodaj_id)
-				config["guilds"][dodaj_id] = {"channel_id": None, "selected_classes": []}
-				save_config(config)
-
-				embed = discord.Embed(
-					title="**Polecenie wykonane pomyślnie!**",
-					description=f"Serwer o ID `{dodaj_id}` został pomyślnie dodany do listy dozwolonych serwerów.",
-					color=EMBEDS_COLOR
-					)
-				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-				await interaction.response.send_message(embed=embed)
-				log_command(interaction, success=True)
-
-		# Obsługa usunięcia ID serwera
-		if usun_id and not dodaj_id:
-			if usun_id not in config.get("allowed_guilds", []):
-				embed = discord.Embed(
-					title="**Polecenie nie zostało wykonane!**",
-					description="Wykonana operacja jest niepoprawna. Ten serwer nie znajduje się na liście dozwolonych serwerów.",
-					color=EMBEDS_COLOR
-					)
-				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-				await interaction.response.send_message(embed=embed)
-				log_command(interaction, success=False, error_message="Ten serwer nie znajduje się na liście dozwolonych serwerów.")
-			else:
-				config["allowed_guilds"].remove(usun_id)
-				config["guilds"].pop(usun_id, None)
-				save_config(config)
-
-				embed = discord.Embed(
-					title="**Polecenie wykonane pomyślnie!**",
-					description=f"Serwer o ID `{usun_id}` został pomyślnie usunięty z listy dozwolonych serwerów.",
-					color=EMBEDS_COLOR
-					)
-				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
-
-				await interaction.response.send_message(embed=embed)
-				log_command(interaction, success=True)
+			description=("### Jesteś uczniem?\nAby dostawać powiadomienia z nowymi zastępstwami przypisanymi Twojej klasie, naciśnij przycisk **Uczeń**.\n### Jesteś nauczycielem?\nAby dostawać powiadomienia z nowymi zastępstwami przypisanymi Tobie, naciśnij przycisk **Nauczyciel**.\n\nAby wyczyścić wszystkie ustawione filtry, naciśnij przycisk **Wyczyść filtry**."),
+			color=discord.Color(0xca4449),
+		)
+		embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
+		await interaction.response.send_message(embed=embed, view=view)
+		logujPolecenia(interaction, success=True)
 
 	except Exception as e:
-		log_command(interaction, success=False, error_message=str(e))
-		await interaction.response.send_message(f"Wystąpił błąd: {str(e)}", ephemeral=True)
-		raise
+		logujPolecenia(interaction, success=False, error_message=str(e))
+		logiKonsoli.exception(f"Wystąpił błąd podczas wywołania polecenia /skonfiguruj. Więcej informacji: {e}")
+		try:
+			if interaction.response.is_done():
+				await interaction.followup.send(f"Wystąpił błąd. Więcej informacji: {str(e)}", ephemeral=True)
+			else:
+				await interaction.response.send_message(f"Wystąpił błąd. Więcej informacji: {str(e)}", ephemeral=True)
+		except Exception:
+			pass
 
 # /informacje
 @bot.tree.command(name="informacje", description="Wyświetl najważniejsze informacje dotyczące bota.")
@@ -716,29 +1002,43 @@ async def informacje(interaction: discord.Interaction):
 	try:
 		embed = discord.Embed(
 			title="**Informacje dotyczące bota**",
-			description="Otwarto źródłowe oprogramowanie Informujące o aktualizacji zastępstw. Aby skontaktować się z administratorem bota, wystarczy, że klikniesz jednego z nich.",
-			color=EMBEDS_COLOR
+			description="Otwartoźródłowe oprogramowanie informujące o aktualizacji zastępstw. W celu skontaktowania się z administratorem bot, kliknij jednego z poniżej widniejących. Zostaniesz przeniesiony/a do zewnętrznej witryny internetowej.",
+			color=discord.Color(0xca4449)
 		)
-		embed.add_field(name="Wersja bota:", value=BOT_VERSION)
-		embed.add_field(name="Repozytorium GitHuba:", value=(f"[{SHORT_GITHUB_REPOSITORY}]({GITHUB_REPOSITORY})"))
-		embed.add_field(name="Administratorzy bota:", value=BOT_ADMINISTRATORS)
-		embed.add_field(name="Ilość serwerów:", value=(f"Bot znajduję się na **{bot.get_server_count()}** serwerach."))
-		embed.add_field(name="Bot pracuje bez przerwy przez:", value=bot.get_uptime())
-		if str(interaction.guild.id) in config.get("allowed_guilds", []):
-			embed.add_field(name="Czy ten serwer jest dozwolony?", value=("Tak, jest."))
+		wersja = konfiguracja.get("wersja")
+		embed.add_field(name="Wersja bota:", value=wersja)
+		embed.add_field(name="Repozytorium GitHuba:", value=("[kacpergorka/zastepstwa](https://github.com/kacpergorka/Zastepstwa)"))
+		embed.add_field(name="Administratorzy bota:", value="[Kacper Górka](https://kacpergorka.com/)")
+		if bot.pobierzLiczbęSerwerów() == 1:
+			embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{bot.pobierzLiczbęSerwerów()}** serwerze."))
 		else:
-			embed.add_field(name="Czy ten serwer jest dozwolony?", value=("Nie, nie jest."))
-		embed.set_footer(text="Projekt ten licencjonowany jest na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
+			embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{bot.pobierzLiczbęSerwerów()}** serwerach."))
+		embed.add_field(name="Bot pracuje bez przerwy przez:", value=bot.pobierzCzasDziałania())
+		embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
 
 		await interaction.response.send_message(embed=embed)
-		log_command(interaction, success=True)
+		logujPolecenia(interaction, success=True)
 	except Exception as e:
-		log_command(interaction, success=False, error_message=str(e))
-		await interaction.response.send_message(f"Wystąpił błąd: {str(e)}", ephemeral=True)
-		raise
+		logujPolecenia(interaction, success=False, error_message=str(e))
+		logiKonsoli.exception(f"Wystąpił błąd podczas wywołania polecenia /informacje. Więcej informacji: {e}")
+		try:
+			await interaction.response.send_message(f"Wystąpił błąd. Więcej informacji: {str(e)}", ephemeral=True)
+		except Exception:
+			pass
 
 # Uruchomienie bota
-if not config.get("token"):
-	console_logger.error("Brak tokena bota. Ustaw TOKEN w pliku konfiguracyjnym.")
+if not konfiguracja.get("token"):
+	logiKonsoli.critical("Brak tokena bota. Ustaw token w pliku konfiguracyjnym.")
 	exit(1)
-bot.run(config.get("token"))
+try:
+	bot.run(konfiguracja.get("token"))
+except discord.LoginFailure as e:
+	logiKonsoli.critical(f"Nieprawidłowy token bota. Więcej informacji: {e}")
+	raise
+except Exception as e:
+	logiKonsoli.exception(f"Krytyczny błąd uruchomienia bota. Więcej informacji: {e}")
+	raise
+except KeyboardInterrupt:
+	logiKonsoli.info("Zatrzymywanie bota...")
+finally:
+	asyncio.run(bot.close())
