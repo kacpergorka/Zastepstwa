@@ -231,7 +231,7 @@ async def pobierzZawartośćWitryny(url):
 	try:
 		async with bot.połączenie_http.get(url) as response:
 			response.raise_for_status()
-			text = await response.text(encoding="utf-8", errors="ignore")
+			text = await response.text(encoding="iso-8859-2", errors="ignore")
 			return BeautifulSoup(text, "html.parser")
 	except asyncio.TimeoutError as e:
 		logiKonsoli.warning(f"Przekroczono czas oczekiwania na połączenie. Więcej informacji: {e}")
