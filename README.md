@@ -8,16 +8,16 @@ W przypadku wystąpienia jakiegokolwiek błędu z zakresu poprawnego funkcjonowa
 
 # Najważniejsze funkcje bota
 ### Wybór kanału do wysyłania zastępstw
-Bot umożliwia administratorom serwera ustawienie dedykowanego kanału tekstowego, na który będą wysyłane zastępstwa, przy pomocy polecenia `/skonfiguruj`. Dzięki temu wszystkie istotne informacje trafią do wybranej grupy użytkowników.
+Bot umożliwia wybranie dedykowanego kanału tekstowego, na który będą wysyłane zastępstwa, przy pomocy polecenia `/skonfiguruj`. Dzięki temu wszystkie istotne informacje trafią do wybranej grupy użytkowników.
 
 ### Filtracja zastępstw przystosowana dla uczniów i nauczycieli
-Administratorzy serwera mogą skonfigurować filtrowanie zastępstw, w dalszym procesie polecenia `/skonfiguruj`. Podczas konfiguracji możesz wskazać, które klasy lub którzy nauczyciele Cię interesują. Efekt? Otrzymujesz jedynie powiadomienia, które naprawdę Cię dotyczą, bez konieczności przeglądania całej listy zastępstw. Jeżeli wprowadzisz nazwę klasy lub nazwisko z błędem, bot zaproponuje najbardziej prawdopodobne poprawne dopasowania.
+Jedną z najważniejszych funkcji bota jest konfigurowana filtracja zastępstw, w dalszym procesie polecenia `/skonfiguruj`. Podczas konfiguracji możesz wskazać, które klasy lub którzy nauczyciele Cię interesują. Efekt? Otrzymujesz jedynie powiadomienia, które naprawdę Cię dotyczą, bez konieczności przeglądania całej listy zastępstw. Jeżeli wprowadzisz nazwę klasy lub nazwisko z błędem, bot zaproponuje najbardziej prawdopodobne poprawne dopasowania.
 
 ### Zaawansowane wyszukiwanie i filtrowanie zastępstw
-Bot potrafi inteligentnie dopasować wpisy o zastępstwach nawet wtedy, gdy nazwy klas czy nazwiska nauczycieli zapisane są w różny sposób. Usuwa znaki specjalne, kropki, polskie znaki diakrytyczne i zbędne spacje, a także rozpoznaje skróty oraz inicjały.
+Bot potrafi inteligentnie dopasować wpisy zastępstw nawet wtedy, gdy nazwy klas czy nazwiska nauczycieli zapisane są w różny sposób. Wyodrębniając znaki specjalne, kropki, polskie znaki diakrytyczne czy zbędne spacje, a także rozpoznając skróty oraz inicjały bezbłędnie wyselekcjonowuje zastępstwa dla zastosowanej filtracji.
 
 ### Czytelny i przyjazny interfejs
-Dzięki wykorzystaniu nowoczesnych elementów interfejsu udostępnionych przez Discorda, bot oferuje intuicyjny sposób konfiguracji oraz przejrzyście i czytelnie sformatowane zastępstwa, które umieszcza na wskazanym wcześniej kanale.
+Dzięki wykorzystaniu nowoczesnych elementów interfejsu, udostępnionych przez Discorda, bot oferuje intuicyjny sposób konfiguracji oraz przejrzyście i czytelnie sformatowane zastępstwa, które umieszcza na wskazanym wcześniej kanale.
 
 #
 Projekt licencjonowany na podstawie [Licencji MIT](./LICENSE). Stworzone z ❤️ przez Kacpra Górkę!
