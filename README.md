@@ -10,22 +10,22 @@ W przypadku wystąpienia jakiegokolwiek błędu z zakresu poprawnego funkcjonowa
 ### Wybór kanału do wysyłania zastępstw
 Bot umożliwia wybranie dedykowanego kanału tekstowego, na który będą wysyłane zastępstwa, przy pomocy polecenia `/skonfiguruj`. Dzięki temu wszystkie istotne informacje trafią do wybranej grupy użytkowników.
 
-![](https://github.com/user-attachments/assets/6349ce56-c153-47db-847b-6d80ee7aa5e4)
+![](https://github.com/user-attachments/assets/22cc4a0d-a540-4732-920a-f8cf848c6526)
 
 ### Filtracja zastępstw przystosowana dla uczniów i nauczycieli
 Jedną z najważniejszych funkcji bota jest konfigurowana filtracja zastępstw, w dalszym procesie polecenia `/skonfiguruj`. Podczas konfiguracji możesz wskazać, które klasy lub którzy nauczyciele Cię interesują. Efekt? Otrzymujesz jedynie powiadomienia, które naprawdę Cię dotyczą, bez konieczności przeglądania całej listy zastępstw. Jeżeli wprowadzisz nazwę klasy lub nazwisko z błędem, bot zaproponuje najbardziej prawdopodobne poprawne dopasowania.
 
-![](https://github.com/user-attachments/assets/f61e143b-933b-4f07-91a1-7dc70c641f18)
+![](https://github.com/user-attachments/assets/e88894e4-5ef1-434a-871b-19dc581a6284)
 
 ### Zaawansowane wyszukiwanie i filtrowanie zastępstw
 Bot potrafi inteligentnie dopasować wpisy zastępstw nawet wtedy, gdy nazwy klas czy nazwiska nauczycieli zapisane są w różny sposób. Wyodrębniając znaki specjalne, kropki, polskie znaki diakrytyczne czy zbędne spacje, a także rozpoznając skróty oraz inicjały bezbłędnie wyselekcjonowuje zastępstwa dla zastosowanej filtracji.
 
-![](https://github.com/user-attachments/assets/692ae55c-2d0c-4053-b390-c0800889aa2c)
+![](https://github.com/user-attachments/assets/44c43199-d928-4784-afeb-e2efa80cf929)
 
 ### Czytelny i przejrzysty interfejs
 Dzięki wykorzystaniu nowoczesnych elementów interfejsu, udostępnionych przez Discorda, bot oferuje intuicyjny sposób konfiguracji oraz przejrzyście i czytelnie sformatowane zastępstwa.
 
-![](https://github.com/user-attachments/assets/ce793410-5fec-4a37-90b0-b2d43aaa6465)
+![](https://github.com/user-attachments/assets/a4248095-d4c9-4ebc-9463-13355aef1caa)
 
 #
 Projekt licencjonowany na podstawie [Licencji MIT](./LICENSE). Stworzone z ❤️ przez Kacpra Górkę!
