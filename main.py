@@ -47,6 +47,7 @@ class zastępstwa(discord.Client):
 			self.start_time = datetime.now()
 			logiKonsoli.info(f"Zalogowano jako {self.user.name} (ID: {self.user.id}).")
 			await self.tree.sync()
+			await bot.change_presence(status=discord.Status.online, activity=discord.CustomActivity(name="kacpergorka.com/zastepstwa"))
 			asyncio.create_task(sprawdźAktualizacje())
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd podczas wywoływania funkcji on_ready. Więcej informacji: {e}")
