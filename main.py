@@ -64,8 +64,6 @@ class zastępstwa(discord.Client):
 		return f"**{int(dni)}** dni, **{int(godziny)}** godz., **{int(minuty)}** min. i **{int(sekundy)}** sek."
 
 intents = discord.Intents.default()
-intents.guilds = True
-intents.members = True
 bot = zastępstwa(intents=intents)
 
 # Konfiguracja logowania
@@ -314,6 +312,43 @@ def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
 
 # Wyodrębnienie danych z pobranego pliku strony internetowej
 def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
+	def bezpiecznyTekst(węzeł):
+		if węzeł is None:
+			return ""
+		tmp = BeautifulSoup(str(węzeł), "html.parser")
+
+		for br in tmp.find_all("br"):
+			br.replace_with("\n")
+		for tag in tmp.find_all(["nobr", "blink", "span", "font", "b", "i", "u"]):
+			tag.unwrap()
+
+		tekst = tmp.get_text(separator=" ", strip=True)
+
+		# Normalizacja tekstu
+		tekst = tekst.replace("\xa0", " ")
+		tekst = re.sub(r"[ \t]+", " ", tekst)
+		tekst = re.sub(r" *\n *", "\n", tekst)
+		tekst = re.sub(r"\n{3,}", "\n\n", tekst)
+		return tekst.strip()
+
+	def komórkaMaKlasy(komórka, nazwy):
+		klasy = komórka.get("class") or []
+		if isinstance(klasy, str):
+			klasy = [klasy]
+		return any(klasa in nazwy for klasa in klasy)
+
+	def czySaZastepstwa(wszystkieWiersze):
+		nagłówki = {"lekcja", "opis", "zastępca", "uwagi"}
+		for wiersz in wszystkieWiersze:
+			komórki = wiersz.find_all("td")
+			if len(komórki) >= 4:
+				teksty = [bezpiecznyTekst(td).lower() for td in komórki[:4]]
+				jestPuste = all(tekst == "" or tekst == "&nbsp;" for tekst in teksty)
+				jestNagłówek = set(tekst.strip().lower() for tekst in teksty) <= nagłówki
+				if not jestPuste and not jestNagłówek:
+					return True
+		return False
+
 	if zawartośćStrony is None:
 		logiKonsoli.warning("Brak treści pobranej ze strony.")
 		return "", []
@@ -323,28 +358,29 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 		informacjeDodatkowe = ""
 		wiersze = zawartośćStrony.find_all("tr")
 
-		# Ekstrakcja dodatkowych informacji
-		komórkaDodatkowychInformacji = None
+		komórkaSt0 = None
 		for wiersz in wiersze:
 			for komórka in wiersz.find_all("td"):
-				klasy = komórka.get("class") or []
-				if isinstance(klasy, str):
-					klasy = [klasy]
-				if "st0" in klasy:
-					komórkaDodatkowychInformacji = komórka
+				if komórkaMaKlasy(komórka, {"st0"}):
+					komórkaSt0 = komórka
 					break
-			if komórkaDodatkowychInformacji:
+			if komórkaSt0:
 				break
 
-		if komórkaDodatkowychInformacji:
-			link = komórkaDodatkowychInformacji.find("a")
-			if link and link.get("href"):
-				tekstLinku = link.get_text(strip=True)
-				urlLinku = link["href"]
-				tekstDodatkowychInformacji = komórkaDodatkowychInformacji.get_text(separator="\n", strip=True).replace(tekstLinku, "").strip()
-				informacjeDodatkowe = f"{tekstDodatkowychInformacji}\n[{tekstLinku}]({urlLinku})"
-			else:
-				informacjeDodatkowe = komórkaDodatkowychInformacji.get_text(separator="\n", strip=True)
+		if komórkaSt0:
+			tekstSt0 = komórkaSt0.get_text(separator="\n", strip=True)
+			tekstSt0 = re.sub(r"[ \t]+", " ", tekstSt0)
+			tekstSt0 = re.sub(r"\n{3,}", "\n\n", tekstSt0)
+
+			if tekstSt0:
+				link = komórkaSt0.find("a")
+				if link and link.get("href"):
+					tekstLinku = bezpiecznyTekst(link)
+					urlLinku = link.get("href")
+					bezTekstuSt0 = tekstSt0.replace(tekstLinku, "").strip()
+					informacjeDodatkowe = f"{bezTekstuSt0}\n[{tekstLinku}]({urlLinku})".strip()
+				else:
+					informacjeDodatkowe = tekstSt0
 
 		aktualnyNauczyciel = None
 		zgrupowane = defaultdict(list)
@@ -353,18 +389,15 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 			komórki = wiersz.find_all("td")
 
 			if len(komórki) == 1:
-				aktualnyNauczyciel = komórki[0].get_text(separator="\n", strip=True)
+				aktualnyNauczyciel = bezpiecznyTekst(komórki[0])
 				continue
 
 			if komórki and (komórki[0].get("class") or []):
-				klasyPierwszejKomórkiWiersza = komórki[0].get("class")
-				if isinstance(klasyPierwszejKomórkiWiersza, str):
-					klasyPierwszejKomórkiWiersza = [klasyPierwszejKomórkiWiersza]
-				if "st0" in klasyPierwszejKomórkiWiersza:
+				if komórkaMaKlasy(komórki[0], {"st0"}):
 					continue
 
 			if len(komórki) >= 4:
-				teksty = [komórka.get_text(strip=True) for komórka in komórki[:4]]
+				teksty = [bezpiecznyTekst(komórka) for komórka in komórki[:4]]
 				lekcja, opis, zastępca, uwagi = teksty
 				pola = [lekcja, opis, zastępca, uwagi]
 				etykiety = ["Lekcja", "Opis", "Zastępca", "Uwagi"]
@@ -396,13 +429,25 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 					zgrupowane[kluczNauczyciela].append(tekstWpisówZastępstw)
 
 		wpisyZastępstw = [(nauczyciel, zgrupowane[nauczyciel]) for nauczyciel in zgrupowane if zgrupowane[nauczyciel]]
+
+		if not informacjeDodatkowe:
+			maZastepstwa = czySaZastepstwa(wiersze)
+			if not maZastepstwa:
+				treściSt1 = []
+				for wiersz in wiersze:
+					for komórka in wiersz.find_all("td"):
+						if komórkaMaKlasy(komórka, {"st1"}):
+							tekst = bezpiecznyTekst(komórka)
+							if tekst and tekst != "&nbsp;":
+								treściSt1.append(tekst)
+				informacjeDodatkowe = "\n".join(treściSt1).strip()
+
 		if len(wpisyZastępstw) == 0 or len(wpisyZastępstw) > 4:
 			logiKonsoli.debug(f"Wyodrębniono {len(wpisyZastępstw)} wpisów.")
 		elif len(wpisyZastępstw) == 1:
 			logiKonsoli.debug(f"Wyodrębniono {len(wpisyZastępstw)} wpis.")
 		elif 2 <= len(wpisyZastępstw) <= 4:
 			logiKonsoli.debug(f"Wyodrębniono {len(wpisyZastępstw)} wpisy.")
-			
 		return informacjeDodatkowe, wpisyZastępstw
 
 	except Exception as e:
