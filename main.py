@@ -21,7 +21,7 @@ import aiohttp
 import discord
 from discord import app_commands
 import pytz
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
 class zastępstwa(discord.Client):
 	def __init__(self, *, intents: discord.Intents):
@@ -148,7 +148,7 @@ blokadaKonfiguracji = asyncio.Lock()
 def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 	if not path.exists():
 		default = {
-			"wersja": "2.0.2-stable",
+			"wersja": "2.0.3-stable",
 			"url": "",
 			"kodowanie": "",
 			"token": "",
@@ -318,18 +318,19 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 		tmp = BeautifulSoup(str(węzeł), "html.parser")
 
 		for br in tmp.find_all("br"):
-			br.replace_with("\n")
+			br.replace_with(NavigableString("\n"))
 		for tag in tmp.find_all(["nobr", "blink", "span", "font", "b", "i", "u"]):
 			tag.unwrap()
 
-		tekst = tmp.get_text(separator=" ", strip=True)
+		tekst = tmp.get_text(separator="")
 
 		# Normalizacja tekstu
+		tekst = tekst.replace("\r\n", "\n").replace("\r", "\n")
 		tekst = tekst.replace("\xa0", " ")
-		tekst = re.sub(r"[ \t]+", " ", tekst)
-		tekst = re.sub(r" *\n *", "\n", tekst)
+		tekst = re.sub(r"[ \t]*\n[ \t]*", "\n", tekst)
+		tekst = re.sub(r"[ \t]{2,}", " ", tekst)
 		tekst = re.sub(r"\n{3,}", "\n\n", tekst)
-		return tekst.strip()
+		return tekst.strip("\n ")
 
 	def komórkaMaKlasy(komórka, nazwy):
 		klasy = komórka.get("class") or []
