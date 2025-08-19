@@ -22,6 +22,11 @@ Bot potrafi inteligentnie dopasować wpisy zastępstw nawet wtedy, gdy nazwy kla
 
 ![](https://github.com/user-attachments/assets/44c43199-d928-4784-afeb-e2efa80cf929)
 
+### Statystyki zastępstw
+Za pomocą polecenia `/statystyki` jesteś w stanie zobaczyć jaką ilość zastępstw bot dostarczył na Twój serwer oraz listę nauczycieli z największą liczbą odnotowanych zastępstw. Na zakończenie roku szkolnego bot automatycznie wyśle podsumowanie całorocznego dostarczania zastępstw na serwer, a Ty będziesz w stanie zobaczyć, którzy nauczyciele najczęściej zostawali odnotowywani.
+
+![](https://github.com/user-attachments/assets/1cb6ed7a-063d-4e93-9b70-157496ffb34c)
+
 ### Czytelny i przejrzysty interfejs
 Dzięki wykorzystaniu nowoczesnych elementów interfejsu, udostępnionych przez Discorda, bot oferuje intuicyjny sposób konfiguracji oraz przejrzyście i czytelnie sformatowane zastępstwa.
 
