@@ -23,7 +23,8 @@ from discord import app_commands
 import pytz
 from bs4 import BeautifulSoup, NavigableString
 
-class zastępstwa(discord.Client):
+# Zainicjowanie klasy klienta discorda
+class Zastępstwa(discord.Client):
 	def __init__(self, *, intents: discord.Intents):
 		super().__init__(intents=intents)
 		self.tree = app_commands.CommandTree(self)
@@ -66,16 +67,17 @@ class zastępstwa(discord.Client):
 		return f"**{int(dni)}** dni, **{int(godziny)}** godz., **{int(minuty)}** min. i **{int(sekundy)}** sek."
 
 intents = discord.Intents.default()
-bot = zastępstwa(intents=intents)
+bot = Zastępstwa(intents=intents)
 
-# Konfiguracja logowania
-class formatStrefyCzasowej(logging.Formatter):
+# Formatowanie strefy czasowej
+class FormatStrefyCzasowej(logging.Formatter):
 	def formatTime(self, record, datefmt=None):
 		daneCzasu = datetime.fromtimestamp(record.created, pytz.timezone("Europe/Warsaw"))
 		if datefmt:
 			return daneCzasu.strftime(datefmt)
 		return daneCzasu.strftime("%d-%m-%Y %H:%M:%S")
 
+# Konfigurowanie logowania
 def skonfigurujLogi():
 	folderLogów = Path("Logs")
 	folderLogów.mkdir(exist_ok=True)
@@ -94,7 +96,7 @@ def skonfigurujLogi():
 		backupCount=31
 	)
 
-	formatter = formatStrefyCzasowej("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+	formatter = FormatStrefyCzasowej("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 	obsługaLogów.setFormatter(formatter)
 
 	logiKonsoli.addHandler(obsługaLogów)
@@ -104,6 +106,7 @@ def skonfigurujLogi():
 
 logiKonsoli, logiPoleceń = skonfigurujLogi()
 
+# Logowanie poleceń
 def logujPolecenia(interaction: discord.Interaction, success: bool, error_message: str = None):
 	status = "pomyślnie" if success else "niepomyślnie"
 	informacjaBłędu = f" ({error_message})" if error_message else ""
@@ -121,10 +124,7 @@ def logujPolecenia(interaction: discord.Interaction, success: bool, error_messag
 
 	try:
 		if getattr(interaction, "guild", None):
-			miejsce = (
-				f"na serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) "
-				f"na kanale '{getattr(interaction.channel, 'name', 'N/A')}' (ID: {getattr(interaction.channel, 'id', 'N/A')}). "
-			)
+			miejsce = (f"na serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) na kanale '{getattr(interaction.channel, 'name', 'N/A')}' (ID: {getattr(interaction.channel, 'id', 'N/A')}). ")
 		else:
 			miejsce = "w wiadomości prywatnej (DM). "
 	except Exception:
@@ -143,7 +143,7 @@ def logujPolecenia(interaction: discord.Interaction, success: bool, error_messag
 	)
 	logiPoleceń.info(wiadomośćLogu)
 
-# Zarządzanie plikiem konfiguracyjnym
+# Wczytywanie pliku konfiguracyjnego
 ścieżkaKonfiguracji = Path("config.json")
 blokadaKonfiguracji = asyncio.Lock()
 
@@ -159,9 +159,9 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.1.0-stable",
-		"url": "",
-		"kodowanie": "",
+		"wersja": "2.1.1-stable",
+		"url": "https://zastepstwa.zse.bydgoszcz.pl",
+		"kodowanie": "iso-8859-2",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
@@ -202,6 +202,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 
 konfiguracja = wczytajKonfiguracje()
 
+# Zapisywanie pliku konfiguracyjnego
 async def zapiszKonfiguracje(konfiguracja):
 	tmp = ścieżkaKonfiguracji.with_suffix(".json.tmp")
 
@@ -223,6 +224,62 @@ async def zapiszKonfiguracje(konfiguracja):
 	except Exception as e:
 		logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania pliku konfiguracyjnego. Więcej informacji: {e}")
 
+# Zarządzanie plikami danych serwerów
+folderDanych = Path("Resources")
+folderDanych.mkdir(exist_ok=True)
+blokadaPlikuNaSerwer = defaultdict(lambda: asyncio.Lock())
+
+async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
+	identyfikatorSerwera = str(identyfikatorSerwera)
+	ścieżkaPliku = folderDanych / f"{identyfikatorSerwera}.json"
+	tmp = ścieżkaPliku.with_suffix(".json.tmp")
+
+	async with blokadaPlikuNaSerwer[identyfikatorSerwera]:
+		try:
+			if dane is not None:
+				def zapisz():
+					with open(tmp, "w", encoding="utf-8") as plik:
+						json.dump(dane, plik, ensure_ascii=False, indent=4)
+					try:
+						if ścieżkaPliku.exists():
+							kopia = ścieżkaPliku.with_suffix(".json.old")
+							with contextlib.suppress(Exception):
+								os.remove(str(kopia))
+							os.replace(str(ścieżkaPliku), str(kopia))
+					except Exception as e:
+						logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania kopii .old dla {ścieżkaPliku}. Więcej informacji: {e}")
+					os.replace(str(tmp), str(ścieżkaPliku))
+				await asyncio.to_thread(zapisz)
+				return True
+
+			def odczytaj():
+				return ścieżkaPliku.exists()
+			if await asyncio.to_thread(odczytaj):
+				try:
+					def wczytaj():
+						return json.loads(ścieżkaPliku.read_text(encoding="utf-8"))
+					return await asyncio.to_thread(wczytaj)
+				except (json.JSONDecodeError, UnicodeDecodeError) as e:
+					logiKonsoli.exception(f"Wystąpił błąd podczas wczytywania pliku. Więcej informacji: {e}")
+					uszkodzony = ścieżkaPliku.with_suffix(".json.bad")
+					try:
+						await asyncio.to_thread(os.replace, str(ścieżkaPliku), str(uszkodzony))
+						logiKonsoli.exception(f"Uszkodzony plik danych przeniesiony do: {uszkodzony}. Wczytano pustą zawartość.")
+					except Exception as e:
+						logiKonsoli.exception(f"Wystąpił błąd podczas przenoszenia uszkodzonego pliku danych. Więcej informacji: {e}")
+					return {}
+			return {}
+		except Exception as e:
+			logiKonsoli.exception(f"Wystąpił błąd podczas operacji na pliku danych. Więcej informacji: {e}")
+			if tmp.exists():
+				try:
+					tmp.unlink()
+				except Exception as e:
+					logiKonsoli.exception(f"Nie udało się usunąć pliku tymczasowego: {tmp}. Więcej informacji: {e}")
+					pass
+			return {}
+
+# Usuwanie konfiguracji serwera z pliku konfiguracyjnego
 async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
 	async with blokadaKonfiguracji:
 		serwery = konfiguracja.setdefault("serwery", {})
@@ -295,7 +352,7 @@ def odmieńZastępstwa(licznik: int) -> str:
 		return "zastępstwa"
 	return "zastępstw"
 
-# Normalizacja tekstu i klucze dopasowań
+# Normalizacja tekstu
 def normalizujTekst(tekst: str) -> str:
 	if not tekst or not isinstance(tekst, str):
 		return ""
@@ -306,6 +363,7 @@ def normalizujTekst(tekst: str) -> str:
 	tekst = re.sub(r"\s+", " ", tekst)
 	return tekst.lower()
 
+# Tworzenie zestawu kluczy dopasowań
 def zwróćNazwyKluczy(nazwa: str) -> set:
 	norma = normalizujTekst(nazwa)
 	if not norma:
@@ -319,6 +377,7 @@ def zwróćNazwyKluczy(nazwa: str) -> set:
 		klucze.add(f"{części[0][0]}{części[-1]}")
 	return klucze
 
+# Wyciąganie nazwisk nauczycieli z nagłówka i treści komórki
 def wyodrębnijNauczycieli(nazwaNagłówka: str, komórkaZastępcy: str) -> set:
 	wyodrębnieniNauczyciele = set()
 	if nazwaNagłówka and nazwaNagłówka.strip():
@@ -331,6 +390,7 @@ def wyodrębnijNauczycieli(nazwaNagłówka: str, komórkaZastępcy: str) -> set:
 				wyodrębnieniNauczyciele.add(nauczyciel)
 	return wyodrębnieniNauczyciele
 
+# Dopasowywanie wyodrębnionych nauczycieli do listy filtrowanych
 def dopasujNauczyciela(wyodrębnieniNauczyciele: set, wybraniNauczyciele: list) -> bool:
 	if not wybraniNauczyciele:
 		return False
@@ -342,6 +402,7 @@ def dopasujNauczyciela(wyodrębnieniNauczyciele: set, wybraniNauczyciele: list) 
 		kluczeWybranychNauczycieli |= zwróćNazwyKluczy(nauczyciel)
 	return bool(zbiórKluczy & kluczeWybranychNauczycieli)
 
+# Dopasowywanie wyodrębnionych z wiersza klas do listy filtrowanych
 def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
 	if not wybraneKlasy:
 		return False
@@ -508,62 +569,7 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 		logiKonsoli.exception(f"Wystąpił błąd podczas przetwarzania HTML. Więcej informacji: {e}")
 		return "", []
 
-# Obsługa plików danych
-folderDanych = Path("Resources")
-folderDanych.mkdir(exist_ok=True)
-blokadaPlikuNaSerwer = defaultdict(lambda: asyncio.Lock())
-
-async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
-	identyfikatorSerwera = str(identyfikatorSerwera)
-	ścieżkaPliku = folderDanych / f"{identyfikatorSerwera}.json"
-	tmp = ścieżkaPliku.with_suffix(".json.tmp")
-
-	async with blokadaPlikuNaSerwer[identyfikatorSerwera]:
-		try:
-			if dane is not None:
-				def zapisz():
-					with open(tmp, "w", encoding="utf-8") as plik:
-						json.dump(dane, plik, ensure_ascii=False, indent=4)
-					try:
-						if ścieżkaPliku.exists():
-							kopia = ścieżkaPliku.with_suffix(".json.old")
-							with contextlib.suppress(Exception):
-								os.remove(str(kopia))
-							os.replace(str(ścieżkaPliku), str(kopia))
-					except Exception as e:
-						logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania kopii .old dla {ścieżkaPliku}. Więcej informacji: {e}")
-					os.replace(str(tmp), str(ścieżkaPliku))
-				await asyncio.to_thread(zapisz)
-				return True
-
-			def odczytaj():
-				return ścieżkaPliku.exists()
-			if await asyncio.to_thread(odczytaj):
-				try:
-					def wczytaj():
-						return json.loads(ścieżkaPliku.read_text(encoding="utf-8"))
-					return await asyncio.to_thread(wczytaj)
-				except (json.JSONDecodeError, UnicodeDecodeError) as e:
-					logiKonsoli.exception(f"Wystąpił błąd podczas wczytywania pliku. Więcej informacji: {e}")
-					uszkodzony = ścieżkaPliku.with_suffix(".json.bad")
-					try:
-						await asyncio.to_thread(os.replace, str(ścieżkaPliku), str(uszkodzony))
-						logiKonsoli.exception(f"Uszkodzony plik danych przeniesiony do: {uszkodzony}. Wczytano pustą zawartość.")
-					except Exception as e:
-						logiKonsoli.exception(f"Wystąpił błąd podczas przenoszenia uszkodzonego pliku danych. Więcej informacji: {e}")
-					return {}
-			return {}
-		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd podczas operacji na pliku danych. Więcej informacji: {e}")
-			if tmp.exists():
-				try:
-					tmp.unlink()
-				except Exception as e:
-					logiKonsoli.exception(f"Nie udało się usunąć pliku tymczasowego: {tmp}. Więcej informacji: {e}")
-					pass
-			return {}
-
-# Sprawdzanie aktualizacji
+# Sprawdzanie aktualizacji zastępstw
 async def sprawdźAktualizacje():
 	await bot.wait_until_ready()
 	while not bot.is_closed():
@@ -582,7 +588,9 @@ async def sprawdźAktualizacje():
 			await asyncio.gather(*zadania, return_exceptions=True)
 		await asyncio.sleep(300)
 
+# Sprawdzanie aktualizacji dla serwerów
 blokadaNaSerwer = asyncio.Semaphore(3)
+
 async def sprawdźSerwer(identyfikatorSerwera, zawartośćStrony):
 	async with blokadaNaSerwer:
 		await sprawdźSerwery(identyfikatorSerwera, zawartośćStrony)
@@ -670,7 +678,7 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 	except Exception as e:
 		logiKonsoli.exception(f"Wystąpił błąd podczas przetwarzania aktualizacji dla serwera o ID {identyfikatorSerwera}. Więcej informacji: {e}")
 
-# Wysyłanie aktualizacji zastępstw
+# Ograniczenie interakcji bota w celu obsłużenia rate limitów discorda
 blokadaNaKanał = defaultdict(lambda: asyncio.Lock())
 
 async def ograniczWysyłanie(kanał, *args, **kwargs):
@@ -686,8 +694,9 @@ async def ograniczReagowanie(wiadomość, emoji):
 	async with blokadaNaKanał[wiadomość.channel.id]:
 		await wiadomość.add_reaction(emoji)
 
+# Wysyłanie aktualizacji zastępstw
 async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas):
-	opisTylkoDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Nie znaleziono dla Ciebie żadnych zastępstw pasujących do Twoich filtrów, więc nie dostaniesz powiadomienia o aktualizacji."
+	opisTylkoDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Nie znaleziono dla Ciebie żadnych zastępstw pasujących do Twoich filtrów."
 	opisDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością."
 
 	try:
@@ -736,6 +745,7 @@ async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastęps
 	except Exception as e:
 		logiKonsoli.exception(f"Wystąpił nieoczekiwany błąd podczas wysyłania wiadomości. Więcej informacji: {e}")
 
+# Sprawdzanie daty zakończenia roku szkolnego w celu wysłania rocznych statystyk
 async def sprawdźKoniecRoku():
 	await bot.wait_until_ready()
 	while not bot.is_closed():
@@ -929,7 +939,7 @@ async def on_guild_join(guild):
 			except discord.DiscordException as e:
 				logiKonsoli.exception(f"Nie można wysłać wiadomości na serwer {guild.name}. Więcej informacji: {e}")
 
-# /skonfiguruj
+# Polecenie /skonfiguruj
 def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
 	serwery = konfiguracja.setdefault("serwery", {})
 	if identyfikatorSerwera not in serwery:
@@ -1058,7 +1068,7 @@ def pobierzListęKlas() -> list[str]:
 		return suroweDane
 	return []
 
-class widokPonownegoWprowadzania(discord.ui.View):
+class WidokPonownegoWprowadzania(discord.ui.View):
 	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, timeout: float = 120.0):
 		super().__init__(timeout=timeout)
 		self.typDanych = typDanych
@@ -1069,13 +1079,13 @@ class widokPonownegoWprowadzania(discord.ui.View):
 	@discord.ui.button(label="Wprowadź ponownie", style=discord.ButtonStyle.secondary)
 	async def wprowadźPonownie(self, interaction: discord.Interaction, button: discord.ui.Button):
 		try:
-			await interaction.response.send_modal(modalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
+			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class widokPonownegoWprowadzania) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class WidokPonownegoWprowadzania) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-class widokAkceptacjiSugestii(discord.ui.View):
+class WidokAkceptacjiSugestii(discord.ui.View):
 	def __init__(self, typDanych: str, identyfikatorSerwera: str, idealneDopasowania: list[str], sugestie: dict[str, str], listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, timeout: float = 120.0):
 		super().__init__(timeout=timeout)
 		self.typDanych = typDanych
@@ -1127,13 +1137,13 @@ class widokAkceptacjiSugestii(discord.ui.View):
 	@discord.ui.button(label="Wprowadź ponownie", style=discord.ButtonStyle.secondary)
 	async def wprowadźPonownie(self, interaction: discord.Interaction, button: discord.ui.Button):
 		try:
-			await interaction.response.send_modal(modalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
+			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class widokAkceptacjiSugestii) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class WidokAkceptacjiSugestii) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-class modalWybierania(discord.ui.Modal):
+class ModalWybierania(discord.ui.Modal):
 	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str):
 		super().__init__(title="Wprowadź dane do formularza")
 		self.typDanych = typDanych
@@ -1170,7 +1180,7 @@ class modalWybierania(discord.ui.Modal):
 					color=discord.Color(0xca4449),
 				)
 				embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
-				view = widokPonownegoWprowadzania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału)
+				view = WidokPonownegoWprowadzania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału)
 				await interaction.response.defer()
 				await self.wiadomość.edit(embed=embed, view=view)
 				return
@@ -1190,7 +1200,7 @@ class modalWybierania(discord.ui.Modal):
 					color=discord.Color(0xca4449),
 				)
 				embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
-				view = widokAkceptacjiSugestii(self.typDanych, identyfikatorSerwera, idealneDopasowania, sugestie, self.lista, self.wiadomość, self.identyfikatorKanału)
+				view = WidokAkceptacjiSugestii(self.typDanych, identyfikatorSerwera, idealneDopasowania, sugestie, self.lista, self.wiadomość, self.identyfikatorKanału)
 				await interaction.response.defer()
 				await self.wiadomość.edit(embed=embed, view=view)
 				return
@@ -1224,7 +1234,7 @@ class modalWybierania(discord.ui.Modal):
 			with contextlib.suppress(Exception):
 				await interaction.response.send_message("Wystąpił błąd podczas przetwarzania danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-class przyciskUczeń(discord.ui.Button):
+class PrzyciskUczeń(discord.ui.Button):
 	def __init__(self, identyfikatorKanału: str):
 		super().__init__(label="Uczeń", style=discord.ButtonStyle.primary)
 		self.identyfikatorKanału = identyfikatorKanału
@@ -1232,13 +1242,13 @@ class przyciskUczeń(discord.ui.Button):
 	async def callback(self, interaction: discord.Interaction):
 		try:
 			listaKlas = pobierzListęKlas()
-			await interaction.response.send_modal(modalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału))
+			await interaction.response.send_modal(ModalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału))
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Uczeń' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-class przyciskNauczyciel(discord.ui.Button):
+class PrzyciskNauczyciel(discord.ui.Button):
 	def __init__(self, identyfikatorKanału: str):
 		super().__init__(label="Nauczyciel", style=discord.ButtonStyle.primary)
 		self.identyfikatorKanału = identyfikatorKanału
@@ -1246,13 +1256,13 @@ class przyciskNauczyciel(discord.ui.Button):
 	async def callback(self, interaction: discord.Interaction):
 		try:
 			listaNauczycieli = konfiguracja.get("lista-nauczycieli", [])
-			await interaction.response.send_modal(modalWybierania("nauczyciele", listaNauczycieli, interaction.message, self.identyfikatorKanału))
+			await interaction.response.send_modal(ModalWybierania("nauczyciele", listaNauczycieli, interaction.message, self.identyfikatorKanału))
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Nauczyciel' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-class przyciskWyczyśćFiltry(discord.ui.Button):
+class PrzyciskWyczyśćFiltry(discord.ui.Button):
 	def __init__(self):
 		super().__init__(label="Wyczyść filtry", style=discord.ButtonStyle.danger)
 
@@ -1273,12 +1283,12 @@ class przyciskWyczyśćFiltry(discord.ui.Button):
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas przetwarzania danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-class widokGłówny(discord.ui.View):
+class WidokGłówny(discord.ui.View):
 	def __init__(self, identyfikatorKanału: str):
 		super().__init__()
-		self.add_item(przyciskUczeń(identyfikatorKanału))
-		self.add_item(przyciskNauczyciel(identyfikatorKanału))
-		self.add_item(przyciskWyczyśćFiltry())
+		self.add_item(PrzyciskUczeń(identyfikatorKanału))
+		self.add_item(PrzyciskNauczyciel(identyfikatorKanału))
+		self.add_item(PrzyciskWyczyśćFiltry())
 
 @bot.tree.command(name="skonfiguruj", description="Skonfiguruj bota, ustawiając kanał tekstowy i filtry zastępstw.")
 @app_commands.guild_only()
@@ -1296,7 +1306,7 @@ async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChan
 			logujPolecenia(interaction, success=False, error_message="Brak uprawnień.")
 			return
 
-		view = widokGłówny(identyfikatorKanału=str(kanał.id))
+		view = WidokGłówny(identyfikatorKanału=str(kanał.id))
 		embed = discord.Embed(
 			title="**Skonfiguruj filtrowanie zastępstw**",
 			description=("**Jesteś uczniem?**\nAby dostawać powiadomienia z nowymi zastępstwami przypisanymi Twojej klasie, naciśnij przycisk **Uczeń**.\n\n**Jesteś nauczycielem?**\nAby dostawać powiadomienia z nowymi zastępstwami przypisanymi Tobie, naciśnij przycisk **Nauczyciel**.\n\nAby wyczyścić wszystkie ustawione filtry, naciśnij przycisk **Wyczyść filtry**."),
@@ -1317,7 +1327,7 @@ async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChan
 		except Exception:
 			pass
 
-# /statystyki
+# Polecenie /statystyki
 @bot.tree.command(name="statystyki", description="Wyświetl bieżące statystyki zastępstw w tym roku szkolnym dla tego serwera.")
 @app_commands.guild_only()
 async def statystyki(interaction: discord.Interaction):
@@ -1410,7 +1420,7 @@ async def statystyki(interaction: discord.Interaction):
 			else:
 				await interaction.response.send_message("Wystąpił błąd podczas wyświetlania statystyk. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-# /informacje
+# Polecenie /informacje
 @bot.tree.command(name="informacje", description="Wyświetl najważniejsze informacje dotyczące bota i jego administratorów")
 async def informacje(interaction: discord.Interaction):
 	try:
