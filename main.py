@@ -101,6 +101,7 @@ def skonfigurujLogi():
 
 	logiKonsoli.addHandler(obsługaLogów)
 	logiPoleceń.addHandler(obsługaLogów)
+	logiPoleceń.propagate = False
 
 	return logiKonsoli, logiPoleceń
 
