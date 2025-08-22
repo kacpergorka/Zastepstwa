@@ -34,5 +34,12 @@ Dzięki wykorzystaniu nowoczesnych elementów interfejsu, udostępnionych przez 
 
 ![](https://github.com/user-attachments/assets/a4248095-d4c9-4ebc-9463-13355aef1caa)
 
+# Instalacja oprogramowania
+	git clone https://github.com/kacpergorka/zastepstwa/
+	cd .\zastepstwa\
+	pip install -r requirements.txt
+
+Po sklonowaniu repozytorium i zainstalowaniu wymaganych bibliotek uruchom plik `main.py` i poczekaj, aż wygeneruje się domyślny plik `config.json`. Następnie uzupełnij wygenerowany plik, według [przykładowego pliku konfiguracyjnego](https://github.com/user-attachments/files/21945674/config.json).
+
 #
 Projekt licencjonowany na podstawie [Licencji MIT](./LICENSE). Stworzone z ❤️ przez Kacpra Górkę!
