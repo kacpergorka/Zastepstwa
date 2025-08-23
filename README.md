@@ -39,7 +39,7 @@ Dzięki wykorzystaniu nowoczesnych elementów interfejsu, udostępnionych przez 
 	cd .\zastepstwa\
 	pip install -r requirements.txt
 
-Po sklonowaniu repozytorium i zainstalowaniu wymaganych bibliotek uruchom plik `main.py` i poczekaj, aż wygeneruje się domyślny plik `config.json`. Następnie uzupełnij wygenerowany plik, według [przykładowego pliku konfiguracyjnego](https://github.com/user-attachments/files/21945674/config.json).
+Po sklonowaniu repozytorium i zainstalowaniu wymaganych bibliotek uruchom plik `main.py` i poczekaj, aż wygeneruje się domyślny plik `config.json`. Następnie uzupełnij wygenerowany plik, według [przykładowego pliku konfiguracyjnego](https://github.com/user-attachments/files/21949106/config.json). W przypadku jakichkolwiek problemów utwórz Issue i dokładnie opisz napotkany problem.
 
 #
 Projekt licencjonowany na podstawie [Licencji MIT](./LICENSE). Stworzone z ❤️ przez Kacpra Górkę!
