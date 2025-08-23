@@ -1,37 +1,27 @@
 # Standardowe biblioteki Pythona
-import asyncio
+import asyncio, contextlib, copy, difflib, hashlib, json, logging, os, re, signal, sys, unicodedata
 from collections import defaultdict
-import contextlib
-import copy
 from datetime import datetime
-import difflib
-import hashlib
-import json
-import logging
-import logging.handlers
-import os
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-import re
-import signal
-import sys
-import unicodedata
 
 # Zewnętrzne biblioteki
-import aiohttp
-import discord
-from discord import app_commands
-import pytz
+import aiohttp, discord, pytz
 from bs4 import BeautifulSoup, NavigableString
 
 # Zainicjowanie klasy klienta discorda
 class Zastępstwa(discord.Client):
 	def __init__(self, *, intents: discord.Intents):
 		super().__init__(intents=intents)
-		self.tree = app_commands.CommandTree(self)
+		self.tree = discord.app_commands.CommandTree(self)
 
 	async def setup_hook(self):
 		try:
-			self.połączenieHTTP = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
+			wersja = konfiguracja.get("wersja")
+			self.połączenieHTTP = aiohttp.ClientSession(
+				timeout=aiohttp.ClientTimeout(total=10),
+				headers={"User-Agent": f"Zastepstwa/{wersja} (https://github.com/kacpergorka/zastepstwa)"}
+			)
 		except Exception as e:
 			logiKonsoli.critical(f"Nie udało się utworzyć sesji HTTP. Więcej informacji: {e}")
 			raise
@@ -63,7 +53,6 @@ class Zastępstwa(discord.Client):
 		dni, reszta = divmod(czasDziałania.total_seconds(), 86400)
 		godziny, reszta = divmod(reszta, 3600)
 		minuty, sekundy = divmod(reszta, 60)
-
 		return f"**{int(dni)}** dni, **{int(godziny)}** godz., **{int(minuty)}** min. i **{int(sekundy)}** sek."
 
 intents = discord.Intents.default()
@@ -88,21 +77,18 @@ def skonfigurujLogi():
 	logiPoleceń.setLevel(logging.DEBUG)
 
 	ścieżkaLogów = folderLogów / "console.log"
-
-	obsługaLogów = logging.handlers.RotatingFileHandler(
+	obsługaLogów = RotatingFileHandler(
 		filename=ścieżkaLogów,
 		encoding="utf-8",
 		maxBytes=32 * 1024 * 1024,
-		backupCount=31
+		backupCount=30
 	)
-
 	formatter = FormatStrefyCzasowej("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 	obsługaLogów.setFormatter(formatter)
 
 	logiKonsoli.addHandler(obsługaLogów)
 	logiPoleceń.addHandler(obsługaLogów)
 	logiPoleceń.propagate = False
-
 	return logiKonsoli, logiPoleceń
 
 logiKonsoli, logiPoleceń = skonfigurujLogi()
@@ -111,18 +97,8 @@ logiKonsoli, logiPoleceń = skonfigurujLogi()
 def logujPolecenia(interaction: discord.Interaction, success: bool, error_message: str = None):
 	status = "pomyślnie" if success else "niepomyślnie"
 	informacjaBłędu = f" ({error_message})" if error_message else ""
-
-	opcje = []
-	try:
-		opcje = (interaction.data or {}).get("options", []) if interaction and getattr(interaction, "data", None) else []
-	except Exception:
-		opcje = []
-
-	if opcje:
-		użyteArgumenty = "Użyte argumenty: " + ", ".join(f"{opcja.get('name')} ({opcja.get('value')}). " for opcja in opcje)
-	else:
-		użyteArgumenty = ""
-
+	opcje = (interaction.data or {}).get("options", []) if interaction and getattr(interaction, "data", None) else []
+	użyteArgumenty = "Użyte argumenty: " + ", ".join(f"{opcja.get('name')} ({opcja.get('value')}). " for opcja in opcje) if opcje else ""
 	try:
 		if getattr(interaction, "guild", None):
 			miejsce = (f"na serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) na kanale '{getattr(interaction.channel, 'name', 'N/A')}' (ID: {getattr(interaction.channel, 'id', 'N/A')}). ")
@@ -134,7 +110,6 @@ def logujPolecenia(interaction: discord.Interaction, success: bool, error_messag
 	nazwaPolecenia = getattr(getattr(interaction, "command", None), "name", getattr(interaction, "command_name", "unknown"))
 	użytkownik = f"{getattr(interaction, 'user', 'Unknown')}"
 	identyfikatorUżytkownika = getattr(getattr(interaction, "user", None), "id", "Unknown")
-
 	wiadomośćLogu = (
 		f"Użytkownik: {użytkownik} (ID: {identyfikatorUżytkownika}) "
 		f'wywołał polecenie "{nazwaPolecenia}" '
@@ -160,7 +135,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.1.1-stable",
+		"wersja": "2.1.2-stable",
 		"url": "https://zastepstwa.zse.bydgoszcz.pl",
 		"kodowanie": "iso-8859-2",
 		"token": "",
@@ -179,7 +154,6 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		path.write_text(json.dumps(domyślne, ensure_ascii=False, indent=4), encoding="utf-8")
 		logiKonsoli.warning("Utworzono domyślny config.json. Uzupełnij plik konfiguracyjny.")
 		return domyślne
-
 	try:
 		dane = json.loads(path.read_text(encoding="utf-8"))
 		for klucz, wartość in domyślne.items():
@@ -187,14 +161,9 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 
 		dane = uporządkuj(dane, domyślne)
 		path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
-
 		if dane.get("wersja") != domyślne["wersja"]:
 			logiKonsoli.warning(f"Aktualizuję wersję w config.json z {dane.get('wersja')} na {domyślne['wersja']}.")
 			dane["wersja"] = domyślne["wersja"]
-			path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
-		if dane.get("koniec-roku-szkolnego") != domyślne["koniec-roku-szkolnego"]:
-			logiKonsoli.warning(f"Aktualizuję datę zakończenia roku szkolnego w config.json z {dane.get('koniec-roku-szkolnego')} na {domyślne['koniec-roku-szkolnego']}.")
-			dane["koniec-roku-szkolnego"] = domyślne["koniec-roku-szkolnego"]
 			path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
 		return dane
 	except json.JSONDecodeError as e:
@@ -206,7 +175,6 @@ konfiguracja = wczytajKonfiguracje()
 # Zapisywanie pliku konfiguracyjnego
 async def zapiszKonfiguracje(konfiguracja):
 	tmp = ścieżkaKonfiguracji.with_suffix(".json.tmp")
-
 	def zapisz():
 		with open(tmp, "w", encoding="utf-8") as plik:
 			json.dump(konfiguracja, plik, ensure_ascii=False, indent=4)
@@ -219,7 +187,6 @@ async def zapiszKonfiguracje(konfiguracja):
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania kopii .old dla {ścieżkaKonfiguracji}. Więcej informacji: {e}")
 		os.replace(str(tmp), str(ścieżkaKonfiguracji))
-
 	try:
 		await asyncio.to_thread(zapisz)
 	except Exception as e:
@@ -234,7 +201,6 @@ async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
 	identyfikatorSerwera = str(identyfikatorSerwera)
 	ścieżkaPliku = folderDanych / f"{identyfikatorSerwera}.json"
 	tmp = ścieżkaPliku.with_suffix(".json.tmp")
-
 	async with blokadaPlikuNaSerwer[identyfikatorSerwera]:
 		try:
 			if dane is not None:
@@ -289,9 +255,7 @@ async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
 			logiKonsoli.info(f"Usunięto serwer o ID {identyfikatorSerwera} z pliku config.json.")
 		else:
 			logiKonsoli.warning(f"Nie znaleziono konfiguracji serwera o ID {identyfikatorSerwera}. Dane nie zostały usunięte.")
-
 		snapshot = copy.deepcopy(konfiguracja)
-
 	await zapiszKonfiguracje(snapshot)
 
 	ścieżkaZasobów = folderDanych / f"{identyfikatorSerwera}.json"
@@ -409,7 +373,6 @@ def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
 		return False
 
 	komórki = komórkiWiersza[:]
-
 	if len(komórki) > 1 and komórki[1]:
 		komórki[1] = komórki[1].split('-', 1)[0]
 
@@ -430,16 +393,15 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 	def bezpiecznyTekst(węzeł):
 		if węzeł is None:
 			return ""
-		tmp = BeautifulSoup(str(węzeł), "html.parser")
 
+		tmp = BeautifulSoup(str(węzeł), "html.parser")
 		for br in tmp.find_all("br"):
 			br.replace_with(NavigableString("\n"))
 		for tag in tmp.find_all(["nobr", "blink", "span", "font", "b", "i", "u"]):
 			tag.unwrap()
 
-		tekst = tmp.get_text(separator="")
-
 		# Normalizacja tekstu
+		tekst = tmp.get_text(separator="")
 		tekst = tekst.replace("\r\n", "\n").replace("\r", "\n")
 		tekst = tekst.replace("\xa0", " ")
 		tekst = re.sub(r"[ \t]*\n[ \t]*", "\n", tekst)
@@ -482,12 +444,10 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 					break
 			if komórkaSt0:
 				break
-
 		if komórkaSt0:
 			tekstSt0 = komórkaSt0.get_text(separator="\n", strip=True)
 			tekstSt0 = re.sub(r"[ \t]+", " ", tekstSt0)
 			tekstSt0 = re.sub(r"\n{3,}", "\n\n", tekstSt0)
-
 			if tekstSt0:
 				link = komórkaSt0.find("a")
 				if link and link.get("href"):
@@ -500,18 +460,14 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 
 		aktualnyNauczyciel = None
 		zgrupowane = defaultdict(list)
-
 		for wiersz in wiersze:
 			komórki = wiersz.find_all("td")
-
 			if len(komórki) == 1:
 				aktualnyNauczyciel = bezpiecznyTekst(komórki[0])
 				continue
-
 			if komórki and (komórki[0].get("class") or []):
 				if czyKomórkaMaKlasy(komórki[0], {"st0"}):
 					continue
-
 			if len(komórki) >= 4:
 				teksty = [bezpiecznyTekst(komórka) for komórka in komórki[:4]]
 				lekcja, opis, zastępca, uwagi = teksty
@@ -520,7 +476,6 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 
 				def wyodrębnijPrzydatne(wartość, etykieta):
 					return bool(wartość and wartość.lower() != etykieta.lower())
-
 				if not any(wyodrębnijPrzydatne(wartość, etykieta) for wartość, etykieta in zip(pola, etykiety)):
 					continue
 
@@ -539,7 +494,6 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 				dopasowaneDoKlasy = dopasujDoKlasy(komórkiWiersza, wybraneKlasy)
 				wyodrębnieniNauczyciele = wyodrębnijNauczycieli(aktualnyNauczyciel, zastępca)
 				dopasowaneDoNauczyciela = dopasujNauczyciela(wyodrębnieniNauczyciele, wybraniNauczyciele)
-
 				if (wybraneKlasy or wybraniNauczyciele) and (dopasowaneDoKlasy or dopasowaneDoNauczyciela):
 					kluczNauczyciela = aktualnyNauczyciel or ", ".join(wyodrębnieniNauczyciele) or "Ogólne"
 					zgrupowane[kluczNauczyciela].append(tekstWpisówZastępstw)
@@ -565,7 +519,6 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 		elif 2 <= len(wpisyZastępstw) <= 4:
 			logiKonsoli.debug(f"Wyodrębniono {len(wpisyZastępstw)} wpisy.")
 		return informacjeDodatkowe, wpisyZastępstw
-
 	except Exception as e:
 		logiKonsoli.exception(f"Wystąpił błąd podczas przetwarzania HTML. Więcej informacji: {e}")
 		return "", []
@@ -591,7 +544,6 @@ async def sprawdźAktualizacje():
 
 # Sprawdzanie aktualizacji dla serwerów
 blokadaNaSerwer = asyncio.Semaphore(3)
-
 async def sprawdźSerwer(identyfikatorSerwera, zawartośćStrony):
 	async with blokadaNaSerwer:
 		await sprawdźSerwery(identyfikatorSerwera, zawartośćStrony)
@@ -599,18 +551,16 @@ async def sprawdźSerwer(identyfikatorSerwera, zawartośćStrony):
 async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 	async with blokadaKonfiguracji:
 		konfiguracjaSerwera = (konfiguracja.get("serwery", {}) or {}).get(str(identyfikatorSerwera), {}).copy()
+
 	identyfikatorKanału = konfiguracjaSerwera.get("identyfikator-kanalu")
-
 	if not identyfikatorKanału:
-		logiKonsoli.warning(f"Nie ustawiono identyfikatora kanału dla serwera o ID {identyfikatorSerwera}.")
+		logiKonsoli.debug(f"Nie ustawiono identyfikatora kanału dla serwera o ID {identyfikatorSerwera}.")
 		return
-
 	try:
 		kanał = bot.get_channel(int(identyfikatorKanału))
 	except (TypeError, ValueError):
 		logiKonsoli.warning(f"Nieprawidłowy identyfikator kanału '{identyfikatorKanału}' dla serwera o ID {identyfikatorSerwera}.")
 		return
-
 	if not kanał:
 		logiKonsoli.warning(f"Nie znaleziono kanału o ID {identyfikatorKanału} dla serwera o ID {identyfikatorSerwera}.")
 		return
@@ -670,7 +620,6 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 							"statystyki-nauczycieli": statystykiNauczycieli,
 							"ostatni-raport": poprzednieDane.get("ostatni-raport", "")
 				}
-
 				await zarządzajPlikiemDanych(identyfikatorSerwera, noweDane)
 			except discord.DiscordException as e:
 				logiKonsoli.exception(f"Nie udało się wysłać wszystkich wiadomości dla serwera o ID {identyfikatorSerwera}, suma kontrolna nie zostanie zaktualizowana. Więcej informacji: {e}")
@@ -681,7 +630,6 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 
 # Ograniczenie interakcji bota w celu obsłużenia rate limitów discorda
 blokadaNaKanał = defaultdict(lambda: asyncio.Lock())
-
 async def ograniczWysyłanie(kanał, *args, **kwargs):
 	async with blokadaNaKanał[kanał.id]:
 		msg = await kanał.send(*args, **kwargs)
@@ -699,7 +647,6 @@ async def ograniczReagowanie(wiadomość, emoji):
 async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas):
 	opisTylkoDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Nie znaleziono dla Ciebie żadnych zastępstw pasujących do Twoich filtrów."
 	opisDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością."
-
 	try:
 		ostatniaWiadomość = None
 		if informacjeDodatkowe and not aktualneWpisyZastępstw:
@@ -754,7 +701,6 @@ async def sprawdźKoniecRoku():
 			async with blokadaKonfiguracji:
 				dataZakończeniaRoku = (konfiguracja.get("koniec-roku-szkolnego") or "").strip()
 				serwery = list((konfiguracja.get("serwery", {}) or {}).keys())
-
 			if not dataZakończeniaRoku:
 				logiKonsoli.warning("Nie ustawiono daty zakończenia roku szkolnego w pliku config.json. Uzupełnij plik konfiguracyjny.")
 				await asyncio.sleep(3600)
@@ -771,7 +717,6 @@ async def sprawdźKoniecRoku():
 				logiKonsoli.error(f"Niepoprawny format daty zakończenia roku szkolnego: {dataZakończeniaRoku}. Oczekiwane formaty: YYYY-MM-DD lub YYYY-MM-DD HH:MM:SS.")
 				await asyncio.sleep(3600)
 				continue
-
 			if len(dataZakończeniaRoku) == 10:
 				daneCzasu = daneCzasu.replace(hour=0, minute=0, second=0)
 			koniecRoku = pytz.timezone("Europe/Warsaw").localize(daneCzasu)
@@ -793,7 +738,6 @@ async def sprawdźKoniecRoku():
 						dane = await zarządzajPlikiemDanych(identyfikatorSerwera) or {}
 						ostatniRaport = (dane.get("ostatni-raport") or "").strip()
 						licznik = int(dane.get("licznik-zastepstw", 0))
-
 						if licznik == 0:
 							dane["ostatni-raport"] = dataZakończeniaRoku
 							dane["licznik-zastepstw"] = 0
@@ -808,7 +752,6 @@ async def sprawdźKoniecRoku():
 
 						wybraniNauczyciele = konfiguracjaSerwera.get("wybrani-nauczyciele", [])
 						wybraneKlasy = konfiguracjaSerwera.get("wybrane-klasy", [])
-
 						if wybraneKlasy and not wybraniNauczyciele:
 							if kanał.permissions_for(kanał.guild.me).mention_everyone:
 								wzmianka = await ograniczWysyłanie(kanał, "@everyone Podsumowanie roku szkolnego!", allowed_mentions=discord.AllowedMentions(everyone=True))
@@ -833,8 +776,7 @@ async def sprawdźKoniecRoku():
 								if wolneMiejsca > 0:
 									for nauczyciel, liczba in sortowanie[:wolneMiejsca]:
 										embed.add_field(name=str(nauczyciel), value=f"Liczba zastępstw: {int(liczba)}", inline=True)
-							embed.add_field(name="", value="Takich, a nawet lepszych statystyk życzę w następnym roku szkolnym. Udanych i bezpiecznych wakacji!", inline=False)
-							embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
+							embed.set_footer(text="Udanych i bezpiecznych wakacji!\nProjekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
 							await ograniczWysyłanie(kanał, embed=embed)
 
 						elif (wybraneKlasy and wybraniNauczyciele) or (wybraniNauczyciele and not wybraneKlasy):
@@ -864,7 +806,6 @@ async def sprawdźKoniecRoku():
 								for nazwa, liczba in statystyki.items():
 									if not (zwróćNazwyKluczy(nazwa) & wykluczeni):
 										pozostali[nazwa] = int(liczba)
-
 							if pozostali:
 								sortowanie = sorted(pozostali.items(), key=lambda x: (-int(x[1]), x[0]))
 								wolneMiejsca = 24 - len(embed.fields)
@@ -873,8 +814,7 @@ async def sprawdźKoniecRoku():
 										embed.add_field(name=str(nauczyciel), value=f"Liczba zastępstw: {int(liczba)}", inline=True)
 							else:
 								embed.add_field(name="Brak danych", value="Nie znaleziono odpowiednich statystyk dla tego serwera.", inline=False)
-							embed.add_field(name="", value="Takich, a nawet lepszych statystyk, w których występują same okienka za nieobecne klasy, życzę w następnym roku szkolnym. Udanych i bezpiecznych wakacji!", inline=False)
-							embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
+							embed.set_footer(text="Udanych i bezpiecznych wakacji!\nProjekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
 							await ograniczWysyłanie(kanał, embed=embed)
 
 						dane["ostatni-raport"] = dataZakończeniaRoku
@@ -884,10 +824,8 @@ async def sprawdźKoniecRoku():
 							if klucz not in dane:
 								dane[klucz] = ""
 						await zarządzajPlikiemDanych(identyfikatorSerwera, dane)
-
 					except Exception as e:
 						logiKonsoli.exception(f"Wystąpił błąd podczas raportowania statystyk zastępstw na koniec roku dla serwera o ID {identyfikatorSerwera}. Więcej informacji: {e}")
-
 			await asyncio.sleep(24 * 3600)
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił nieoczekiwany błąd podczas sprawdzania, czy nastąpiło zakończenie roku szkolnego. Więcej informacji: {e}")
@@ -933,7 +871,6 @@ async def on_guild_join(guild):
 					description=f"**Informacja wstępna**\nBot został dodany do serwera **{guild.name}**, a ponieważ administrator, który dodał bota na serwer nie ma włączonych wiadomości prywatnych, to wiadomość ta zostaje dostarczona na serwer. Wszystkie ważne informacje dotyczące bota oraz jego administratorów znajdziesz, używając polecenia `/informacje`.\n\n> **Jeśli napotkasz jakikolwiek błąd lub chcesz zgłosić swoją propozycję, [utwórz zgłoszenie w zakładce Issues](https://github.com/kacpergorka/Zastepstwa/issues). Jest to bardzo ważne dla prawidłowego funkcjonowania bota!**\n\n**Konfiguracja bota**\nKonfiguracja bota zaczyna się od utworzenia dedykowanego kanału tekstowego, na który po konfiguracji będą wysyłane zastępstwa, a następnie użycia polecenia `/skonfiguruj`, gdzie przejdziesz przez wygodny i intuicyjny konfigurator. W razie jakichkolwiek pytań odsyłam również do Issues na GitHubie.",
 					color=discord.Color(0xca4449)
 				)
-
 				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
 				await ograniczWysyłanie(kanał, embed=embed)
 				logiKonsoli.info(f"Wiadomość z instrukcjami została wysłana na kanał #{kanał.name} o ID {kanał.id} na serwerze {guild.name}, ponieważ żaden administrator nie odebrał prywatnej wiadomości.")
@@ -961,17 +898,14 @@ def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
 async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
 	identyfikatorSerwera = str(identyfikatorSerwera)
 	lokalneDane = dict(dane)
-
 	async with blokadaKonfiguracji:
 		daneSerwera = pobierzSłownikSerwera(identyfikatorSerwera)
-
 		for klucz in ("wybrane-klasy", "wybrani-nauczyciele"):
 			if klucz in lokalneDane:
 				nowy = lokalneDane.pop(klucz)
 				istnieje = daneSerwera.get(klucz) or []
 				if not isinstance(istnieje, list):
 					istnieje = list(istnieje)
-
 				if nowy is None:
 					nowaLista = []
 				elif isinstance(nowy, list):
@@ -984,12 +918,9 @@ async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
 
 		if "identyfikator-kanalu" in lokalneDane:
 			daneSerwera["identyfikator-kanalu"] = lokalneDane.pop("identyfikator-kanalu")
-
 		for klucz, wartość in lokalneDane.items():
 			daneSerwera[klucz] = wartość
-
 		snapshot = copy.deepcopy(konfiguracja)
-
 	await zapiszKonfiguracje(snapshot)
 
 async def wyczyśćFiltry(identyfikatorSerwera: str):
@@ -1020,23 +951,19 @@ def zbudujIndeks(listaDoDopasowania: list[str]):
 	mapaKluczy = defaultdict(list)
 	normalizowaneDoOryginalnych = defaultdict(list)
 	listaNormalizowanych = []
-
 	for element in listaDoDopasowania:
 		pełnaNorma = re.sub(r"\s+", "", normalizujTekst(element))
 		normalizowaneDoOryginalnych[pełnaNorma].append(element)
 		listaNormalizowanych.append(pełnaNorma)
 		for klucz in kluczeNormalizacyjne(element):
 			mapaKluczy [klucz].append(element)
-
 	return mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych
 
 def dopasujWpisyDoListy(wpisy: list[str], listaDoDopasowania: list[str], cutoff: float = 0.6):
 	mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych = zbudujIndeks(listaDoDopasowania)
-
 	idealneDopasowania = []
 	sugestie = {}
 	nieZnaleziono = []
-
 	for wpis in wpisy:
 		kluczeWpisu = kluczeNormalizacyjne(wpis)
 		znalezioneIdealneDopasowania = None
@@ -1058,7 +985,6 @@ def dopasujWpisyDoListy(wpisy: list[str], listaDoDopasowania: list[str], cutoff:
 			sugestie[wpis] = kandydat
 		else:
 			nieZnaleziono.append(wpis)
-
 	return idealneDopasowania, sugestie, nieZnaleziono
 
 def pobierzListęKlas() -> list[str]:
@@ -1108,7 +1034,6 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 				if sugestia not in finalne:
 					finalne.append(sugestia)
 			finalne = usuńDuplikaty(finalne)
-
 			kluczFiltru = "wybrane-klasy" if self.typDanych == "klasy" else "wybrani-nauczyciele"
 			await zapiszKluczeSerwera(self.identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, kluczFiltru: finalne})
 		except Exception as e:
@@ -1116,9 +1041,7 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas akceptacji danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
-
 		konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
-
 		kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
 		klasy = ", ".join(re.sub(r'(\d)\s+([A-Z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
 		nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
@@ -1128,7 +1051,6 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 			description="Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja Twojego serwera została wyświetlona poniżej.",
 			color=discord.Color(0xca4449)
 		)
-
 		embed.add_field(name="Kanał tekstowy:", value=kanał)
 		embed.add_field(name="Wybrane klasy:", value=klasy)
 		embed.add_field(name="Wybrani nauczyciele:", value=nauczyciele)
@@ -1154,7 +1076,6 @@ class ModalWybierania(discord.ui.Modal):
 
 		placeholder = "np. 1A, 2D, 3F" if typDanych == "klasy" else "np. A. Kowalski, W. Nowak"
 		label = "Wprowadź klasy (oddzielaj przecinkami)." if typDanych == "klasy" else "Wprowadź nauczycieli (oddzielaj przecinkami)."
-
 		self.pole = discord.ui.TextInput(
 			label=label,
 			style=discord.TextStyle.long,
@@ -1169,7 +1090,6 @@ class ModalWybierania(discord.ui.Modal):
 			wpisy = [element.strip() for element in re.split(r",|;", suroweDane) if element.strip()]
 
 			idealneDopasowania, sugestie, nieZnaleziono = dopasujWpisyDoListy(wpisy, self.lista, cutoff=0.6)
-
 			if nieZnaleziono:
 				embed = discord.Embed(
 					title="**Nie znaleziono wprowadzonych danych**",
@@ -1207,12 +1127,10 @@ class ModalWybierania(discord.ui.Modal):
 				return
 
 			finalne = usuńDuplikaty(idealneDopasowania)
-
 			kluczFiltru = "wybrane-klasy" if self.typDanych == "klasy" else "wybrani-nauczyciele"
 			await zapiszKluczeSerwera(identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, kluczFiltru: finalne})
 
 			konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
-
 			kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
 			klasy = ", ".join(re.sub(r'(\d)\s+([A-Z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
 			nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
@@ -1227,7 +1145,6 @@ class ModalWybierania(discord.ui.Modal):
 			embed.add_field(name="Wybrane klasy:", value=klasy)
 			embed.add_field(name="Wybrani nauczyciele:", value=nauczyciele)
 			embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
-
 			await interaction.response.defer()
 			await self.wiadomość.edit(embed=embed, view=None)
 		except Exception as e:
@@ -1292,8 +1209,8 @@ class WidokGłówny(discord.ui.View):
 		self.add_item(PrzyciskWyczyśćFiltry())
 
 @bot.tree.command(name="skonfiguruj", description="Skonfiguruj bota, ustawiając kanał tekstowy i filtry zastępstw.")
-@app_commands.guild_only()
-@app_commands.describe(kanał="Kanał tekstowy, na który będą wysyłane powiadomienia z zastępstwami.")
+@discord.app_commands.guild_only()
+@discord.app_commands.describe(kanał="Kanał tekstowy, na który będą wysyłane powiadomienia z zastępstwami.")
 async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChannel):
 	try:
 		if not interaction.user.guild_permissions.administrator:
@@ -1316,7 +1233,6 @@ async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChan
 		embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
 		await interaction.response.send_message(embed=embed, view=view)
 		logujPolecenia(interaction, success=True)
-
 	except Exception as e:
 		logujPolecenia(interaction, success=False, error_message=str(e))
 		logiKonsoli.exception(f"Wystąpił błąd podczas wywołania polecenia /skonfiguruj. Więcej informacji: {e}")
@@ -1330,7 +1246,7 @@ async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChan
 
 # Polecenie /statystyki
 @bot.tree.command(name="statystyki", description="Wyświetl bieżące statystyki zastępstw w tym roku szkolnym dla tego serwera.")
-@app_commands.guild_only()
+@discord.app_commands.guild_only()
 async def statystyki(interaction: discord.Interaction):
 	try:
 		identyfikatorSerwera = interaction.guild.id
@@ -1385,7 +1301,6 @@ async def statystyki(interaction: discord.Interaction):
 				for nazwa, liczba in statystyki.items():
 					if not (zwróćNazwyKluczy(nazwa) & wykluczeni):
 						pozostali[nazwa] = int(liczba)
-
 			if pozostali:
 				sortowanie = sorted(pozostali.items(), key=lambda x: (-int(x[1]), x[0]))
 				wolneMiejsca = 24 - len(embed.fields)
@@ -1404,14 +1319,11 @@ async def statystyki(interaction: discord.Interaction):
 					description=f"Aby wykonać to polecenie, poproś administratora o skonfigurowanie zastępstw. Jesteś administratorem? Użyj polecenia `/skonfiguruj` i postępuj zgodnie z instrukcjami.",
 					color=discord.Color(0xca4449)
 				)
-
 				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
 				await interaction.response.send_message(embed=embed, ephemeral=True)
 				logujPolecenia(interaction, success=False, error_message="Zastępstwa nie zostały skonfigurowane.")
 				return
-
 		logujPolecenia(interaction, success=True)
-
 	except Exception as e:
 		logujPolecenia(interaction, success=False, error_message=str(e))
 		logiKonsoli.exception(f"Wystąpił błąd podczas wywołania polecenia /statystyki: {e}")
@@ -1432,7 +1344,7 @@ async def informacje(interaction: discord.Interaction):
 		)
 		wersja = konfiguracja.get("wersja")
 		embed.add_field(name="Wersja bota:", value=wersja)
-		embed.add_field(name="Repozytorium GitHuba:", value=("[kacpergorka/zastepstwa](https://github.com/kacpergorka/Zastepstwa)"))
+		embed.add_field(name="Repozytorium GitHuba:", value=("[kacpergorka/zastepstwa](https://github.com/kacpergorka/zastepstwa)"))
 		embed.add_field(name="Administratorzy bota:", value="[Kacper Górka](https://kacpergorka.com/)")
 		if bot.pobierzLiczbęSerwerów() == 1:
 			embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{bot.pobierzLiczbęSerwerów()}** serwerze."))
@@ -1440,7 +1352,6 @@ async def informacje(interaction: discord.Interaction):
 			embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{bot.pobierzLiczbęSerwerów()}** serwerach."))
 		embed.add_field(name="Bot pracuje bez przerwy przez:", value=bot.pobierzCzasDziałania())
 		embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
-
 		await interaction.response.send_message(embed=embed)
 		logujPolecenia(interaction, success=True)
 	except Exception as e:
@@ -1455,7 +1366,6 @@ async def informacje(interaction: discord.Interaction):
 def wyłączBota(*_):
 	logiKonsoli.info("Przechwycono Ctrl+C. Trwa zatrzymywanie bota...")
 	bot.loop.call_soon_threadsafe(lambda: asyncio.create_task(bot.close()))
-
 signal.signal(signal.SIGINT, wyłączBota)
 if hasattr(signal, "SIGTERM"):
 	signal.signal(signal.SIGTERM, wyłączBota)
