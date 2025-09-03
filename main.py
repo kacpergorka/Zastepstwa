@@ -98,7 +98,7 @@ def logujPolecenia(interaction: discord.Interaction, success: bool, error_messag
 	status = "pomyślnie" if success else "niepomyślnie"
 	informacjaBłędu = f" ({error_message})" if error_message else ""
 	opcje = (interaction.data or {}).get("options", []) if interaction and getattr(interaction, "data", None) else []
-	użyteArgumenty = "Użyte argumenty: " + ", ".join(f"{opcja.get('name')} ({opcja.get('value')}). " for opcja in opcje) if opcje else ""
+	użyteArgumenty = "Użyte argumenty: " + ", ".join(f"{opcja.get('name')} ({opcja.get('value')})" for opcja in opcje) + ". " if opcje else ""
 	try:
 		if getattr(interaction, "guild", None):
 			miejsce = (f"na serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) na kanale '{getattr(interaction.channel, 'name', 'N/A')}' (ID: {getattr(interaction.channel, 'id', 'N/A')}). ")
@@ -135,20 +135,37 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.1.2-stable",
-		"url": "https://zastepstwa.zse.bydgoszcz.pl",
-		"kodowanie": "iso-8859-2",
+		"wersja": "2.2.0-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
-		"lista-klas": {
-			"1": [],
-			"2": [],
-			"3": [],
-			"4": [],
-			"5": []
+		"szkoły": {
+			"zse-bydgoszcz": {
+				"nazwa": "ZSE Bydgoszcz",
+				"url": "https://zastepstwa.zse.bydgoszcz.pl",
+				"kodowanie": "iso-8859-2",
+				"lista-klas": {
+					"1": [],
+					"2": [],
+					"3": [],
+					"4": [],
+					"5": []
+				},
+				"lista-nauczycieli": []
+			},
+			"7lo-bydgoszcz": {
+				"nazwa": "VII LO Bydgoszcz",
+				"url": "https://7lo.bydgoszcz.pl/zastep/zastep.html",
+				"kodowanie": "iso-8859-2",
+				"lista-klas": {
+					"1": [],
+					"2": [],
+					"3": [],
+					"4": []
+				},
+				"lista-nauczycieli": []
+			}
 		},
-		"lista-nauczycieli": []
 	}
 	if not path.exists():
 		path.write_text(json.dumps(domyślne, ensure_ascii=False, indent=4), encoding="utf-8")
@@ -282,12 +299,11 @@ def obliczSumęKontrolną(dane):
 	return hashlib.sha256(wejście.encode("utf-8")).hexdigest()
 
 # Pobieranie zawartości strony internetowej
-async def pobierzZawartośćStrony(url):
+async def pobierzZawartośćStrony(url, kodowanie=None):
 	logiKonsoli.debug(f"Pobieranie URL: {url}")
 	try:
 		async with bot.połączenieHTTP.get(url) as response:
 			response.raise_for_status()
-			kodowanie = konfiguracja.get("kodowanie") or None
 			text = await response.text(encoding=kodowanie, errors="ignore")
 			return BeautifulSoup(text, "html.parser")
 	except asyncio.TimeoutError as e:
@@ -527,19 +543,28 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 async def sprawdźAktualizacje():
 	await bot.wait_until_ready()
 	while not bot.is_closed():
-		zawartośćStrony = None
-		url = konfiguracja.get("url")
-		if not url:
-			logiKonsoli.warning("Nie ustawiono URL w pliku konfiguracyjnym. Pomijanie pobierania.")
+		async with blokadaKonfiguracji:
+			szkoły = dict((konfiguracja.get("szkoły") or {}).copy())
+			serwery = dict((konfiguracja.get("serwery") or {}).copy())
+		if not szkoły:
+			logiKonsoli.warning("Brak zdefiniowanych szkół w pliku konfiguracyjnym. Pomijanie pobierania.")
 		else:
-			zawartośćStrony = await pobierzZawartośćStrony(url)
-		if zawartośćStrony is None:
-			logiKonsoli.warning("Nie udało się pobrać zawartości strony. Pomijanie aktualizacji.")
-		else:
-			async with blokadaKonfiguracji:
-				serwery = list((konfiguracja.get("serwery", {}) or {}).keys())
-			zadania = [sprawdźSerwer(int(identyfikatorSerwera), zawartośćStrony) for identyfikatorSerwera in serwery]
-			await asyncio.gather(*zadania, return_exceptions=True)
+			for identyfikatorSzkoły, daneSzkoły in szkoły.items():
+				url = (daneSzkoły or {}).get("url")
+				if not url:
+					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły '{identyfikatorSzkoły}' w pliku konfiguracyjnym. Pomijanie pobierania.")
+					continue
+
+				zawartośćStrony = await pobierzZawartośćStrony(url, kodowanie=(daneSzkoły or {}).get("kodowanie"))
+				if zawartośćStrony is None:
+					logiKonsoli.warning(f"Nie udało się pobrać zawartości strony dla szkoły '{identyfikatorSzkoły}'. Pomijanie aktualizacji.")
+					continue
+
+				serweryDoSprawdzenia = [int(identyfikatorSerwera) for identyfikatorSerwera, konfiguracjaSerwera in serwery.items() if (konfiguracjaSerwera or {}).get("szkoła") == identyfikatorSzkoły]
+				if not serweryDoSprawdzenia:
+					continue
+				zadania = [sprawdźSerwer(int(identyfikatorSerwera), zawartośćStrony) for identyfikatorSerwera in serweryDoSprawdzenia]
+				await asyncio.gather(*zadania, return_exceptions=True)
 		await asyncio.sleep(300)
 
 # Sprawdzanie aktualizacji dla serwerów
@@ -607,18 +632,20 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 						nazwa = (tytuł or "").strip() or "Ogólne"
 						if normalizujTekst(nazwa) == "ogolne":
 							continue
-						statystykiNauczycieli[nazwa] = int(statystykiNauczycieli.get(nazwa, 0)) + len(wpisy)
+						klucz = nazwa.split("/")[0].strip()
+						statystykiNauczycieli[klucz] = int(statystykiNauczycieli.get(klucz, 0)) + len(wpisy)
 				else:
 					nowyLicznik = poprzedniLicznik
 					statystykiNauczycieli = poprzednieDane.get("statystyki-nauczycieli", {}) or {}
 					if not isinstance(statystykiNauczycieli, dict):
 						statystykiNauczycieli = {}
 
-				noweDane = {"suma-kontrolna-informacji-dodatkowych": sumaKontrolnaAktualnychInformacjiDodatkowych, 
-							"suma-kontrolna-wpisow-zastepstw": sumaKontrolnaAktualnychWpisówZastępstw,
-							"licznik-zastepstw": nowyLicznik,
-							"statystyki-nauczycieli": statystykiNauczycieli,
-							"ostatni-raport": poprzednieDane.get("ostatni-raport", "")
+				noweDane = {
+					"suma-kontrolna-informacji-dodatkowych": sumaKontrolnaAktualnychInformacjiDodatkowych, 
+					"suma-kontrolna-wpisow-zastepstw": sumaKontrolnaAktualnychWpisówZastępstw,
+					"licznik-zastepstw": nowyLicznik,
+					"statystyki-nauczycieli": statystykiNauczycieli,
+					"ostatni-raport": poprzednieDane.get("ostatni-raport", "")
 				}
 				await zarządzajPlikiemDanych(identyfikatorSerwera, noweDane)
 			except discord.DiscordException as e:
@@ -879,27 +906,31 @@ async def on_guild_join(guild):
 
 # Polecenie /skonfiguruj
 def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
+	identyfikatorSerwera = str(identyfikatorSerwera)
 	serwery = konfiguracja.setdefault("serwery", {})
-	if identyfikatorSerwera not in serwery:
-		serwery[identyfikatorSerwera] = {
-			"identyfikator-kanalu": None,
-			"wybrane-klasy": [],
-			"wybrani-nauczyciele": []
-		}
-	else:
-		dane = serwery[identyfikatorSerwera]
-		serwery[identyfikatorSerwera] = {
-			"identyfikator-kanalu": dane.get("identyfikator-kanalu"),
-			"wybrane-klasy": dane.get("wybrane-klasy", []),
-			"wybrani-nauczyciele": dane.get("wybrani-nauczyciele", [])
-		}
-	return serwery[identyfikatorSerwera]
+	dane = serwery.setdefault(identyfikatorSerwera, {})
+	if "identyfikator-kanalu" not in dane:
+		dane["identyfikator-kanalu"] = None
+	if "szkoła" not in dane:
+		dane["szkoła"] = None
+	if "wybrane-klasy" not in dane or not isinstance(dane.get("wybrane-klasy"), list):
+		dane["wybrane-klasy"] = list(dane.get("wybrane-klasy") or [])
+	if "wybrani-nauczyciele" not in dane or not isinstance(dane.get("wybrani-nauczyciele"), list):
+		dane["wybrani-nauczyciele"] = list(dane.get("wybrani-nauczyciele") or [])
+	serwery[identyfikatorSerwera] = dane
+	return dane
 
 async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
 	identyfikatorSerwera = str(identyfikatorSerwera)
-	lokalneDane = dict(dane)
+	lokalneDane = dict(dane or {})
 	async with blokadaKonfiguracji:
+		serwery = konfiguracja.setdefault("serwery", {}) or {}
 		daneSerwera = pobierzSłownikSerwera(identyfikatorSerwera)
+		poprzedniaSzkoła = daneSerwera.get("szkoła")
+		aktualnaSzkoła = lokalneDane.get("szkoła") if "szkoła" in lokalneDane else None
+		if aktualnaSzkoła not in (None, "") and poprzedniaSzkoła and poprzedniaSzkoła != aktualnaSzkoła:
+			daneSerwera.pop("wybrane-klasy", None)
+			daneSerwera.pop("wybrani-nauczyciele", None)
 		for klucz in ("wybrane-klasy", "wybrani-nauczyciele"):
 			if klucz in lokalneDane:
 				nowy = lokalneDane.pop(klucz)
@@ -917,9 +948,18 @@ async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
 				daneSerwera[klucz] = usuńDuplikaty(istnieje + nowaLista)
 
 		if "identyfikator-kanalu" in lokalneDane:
-			daneSerwera["identyfikator-kanalu"] = lokalneDane.pop("identyfikator-kanalu")
+			wartość = lokalneDane.pop("identyfikator-kanalu")
+			if wartość not in (None, "", []):
+				daneSerwera["identyfikator-kanalu"] = str(wartość)
+		if "szkoła" in lokalneDane:
+			wartość = lokalneDane.pop("szkoła")
+			if wartość not in (None, ""):
+				daneSerwera["szkoła"] = wartość
 		for klucz, wartość in lokalneDane.items():
-			daneSerwera[klucz] = wartość
+			if wartość is not None:
+				daneSerwera[klucz] = wartość
+		serwery[identyfikatorSerwera] = daneSerwera
+		konfiguracja["serwery"] = serwery
 		snapshot = copy.deepcopy(konfiguracja)
 	await zapiszKonfiguracje(snapshot)
 
@@ -928,6 +968,7 @@ async def wyczyśćFiltry(identyfikatorSerwera: str):
 	async with blokadaKonfiguracji:
 		daneSerwera = pobierzSłownikSerwera(identyfikatorSerwera)
 		daneSerwera["identyfikator-kanalu"] = None
+		daneSerwera["szkoła"] = None
 		daneSerwera["wybrane-klasy"] = []
 		daneSerwera["wybrani-nauczyciele"] = []
 		snapshot = copy.deepcopy(konfiguracja)
@@ -956,7 +997,7 @@ def zbudujIndeks(listaDoDopasowania: list[str]):
 		normalizowaneDoOryginalnych[pełnaNorma].append(element)
 		listaNormalizowanych.append(pełnaNorma)
 		for klucz in kluczeNormalizacyjne(element):
-			mapaKluczy [klucz].append(element)
+			mapaKluczy[klucz].append(element)
 	return mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych
 
 def dopasujWpisyDoListy(wpisy: list[str], listaDoDopasowania: list[str], cutoff: float = 0.6):
@@ -987,8 +1028,8 @@ def dopasujWpisyDoListy(wpisy: list[str], listaDoDopasowania: list[str], cutoff:
 			nieZnaleziono.append(wpis)
 	return idealneDopasowania, sugestie, nieZnaleziono
 
-def pobierzListęKlas() -> list[str]:
-	suroweDane = konfiguracja.get("lista-klas", {})
+def pobierzListęKlas(szkoła: str | None = None) -> list[str]:
+	suroweDane = ((konfiguracja.get("szkoły") or {}).get(szkoła, {}) or {}).get("lista-klas", {}) if szkoła else konfiguracja.get("lista-klas", {})
 	if isinstance(suroweDane, dict):
 		return [klasa for grupy in suroweDane.values() for klasa in grupy]
 	if isinstance(suroweDane, list):
@@ -996,24 +1037,25 @@ def pobierzListęKlas() -> list[str]:
 	return []
 
 class WidokPonownegoWprowadzania(discord.ui.View):
-	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, timeout: float = 120.0):
+	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, szkoła: str, timeout: float = 120.0):
 		super().__init__(timeout=timeout)
 		self.typDanych = typDanych
 		self.lista = listaDoDopasowania
 		self.wiadomość = wiadomość
 		self.identyfikatorKanału = identyfikatorKanału
+		self.szkoła = szkoła
 
 	@discord.ui.button(label="Wprowadź ponownie", style=discord.ButtonStyle.secondary)
 	async def wprowadźPonownie(self, interaction: discord.Interaction, button: discord.ui.Button):
 		try:
-			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
+			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału, self.szkoła))
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class WidokPonownegoWprowadzania) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
 class WidokAkceptacjiSugestii(discord.ui.View):
-	def __init__(self, typDanych: str, identyfikatorSerwera: str, idealneDopasowania: list[str], sugestie: dict[str, str], listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, timeout: float = 120.0):
+	def __init__(self, typDanych: str, identyfikatorSerwera: str, idealneDopasowania: list[str], sugestie: dict[str, str], listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, szkoła: str, timeout: float = 120.0):
 		super().__init__(timeout=timeout)
 		self.typDanych = typDanych
 		self.identyfikatorSerwera = identyfikatorSerwera
@@ -1022,6 +1064,7 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 		self.lista = listaDoDopasowania
 		self.wiadomość = wiadomość
 		self.identyfikatorKanału = identyfikatorKanału
+		self.szkoła = szkoła
 
 	@discord.ui.button(label="Akceptuj sugestie", style=discord.ButtonStyle.success)
 	async def akceptujSugestie(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1035,7 +1078,7 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 					finalne.append(sugestia)
 			finalne = usuńDuplikaty(finalne)
 			kluczFiltru = "wybrane-klasy" if self.typDanych == "klasy" else "wybrani-nauczyciele"
-			await zapiszKluczeSerwera(self.identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, kluczFiltru: finalne})
+			await zapiszKluczeSerwera(self.identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, "szkoła": self.szkoła, kluczFiltru: finalne})
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Akceptuj sugestie' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
@@ -1043,12 +1086,14 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 
 		konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
 		kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
-		klasy = ", ".join(re.sub(r'(\d)\s+([A-Z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
+		klasy = ", ".join(re.sub(r'(\d)\s+([A-Za-z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
 		nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
+		identyfikatorSzkoły = konfiguracjaSerwera.get("szkoła")
+		nazwaSzkoły = konfiguracja["szkoły"].get(identyfikatorSzkoły, {}).get("nazwa", identyfikatorSzkoły)
 
 		embed = discord.Embed(
 			title="**Zapisano wprowadzone dane**",
-			description="Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja Twojego serwera została wyświetlona poniżej.",
+			description=f"Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja Twojego serwera dla szkoły **{nazwaSzkoły}** została wyświetlona poniżej.",
 			color=discord.Color(0xca4449)
 		)
 		embed.add_field(name="Kanał tekstowy:", value=kanał)
@@ -1060,19 +1105,20 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 	@discord.ui.button(label="Wprowadź ponownie", style=discord.ButtonStyle.secondary)
 	async def wprowadźPonownie(self, interaction: discord.Interaction, button: discord.ui.Button):
 		try:
-			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału))
+			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału, self.szkoła))
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class WidokAkceptacjiSugestii) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
 class ModalWybierania(discord.ui.Modal):
-	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str):
+	def __init__(self, typDanych: str, listaDoDopasowania: list[str], wiadomość: discord.Message, identyfikatorKanału: str, szkoła: str):
 		super().__init__(title="Wprowadź dane do formularza")
 		self.typDanych = typDanych
 		self.lista = listaDoDopasowania
 		self.wiadomość = wiadomość
 		self.identyfikatorKanału = identyfikatorKanału
+		self.szkoła = szkoła
 
 		placeholder = "np. 1A, 2D, 3F" if typDanych == "klasy" else "np. A. Kowalski, W. Nowak"
 		label = "Wprowadź klasy (oddzielaj przecinkami)." if typDanych == "klasy" else "Wprowadź nauczycieli (oddzielaj przecinkami)."
@@ -1101,7 +1147,7 @@ class ModalWybierania(discord.ui.Modal):
 					color=discord.Color(0xca4449),
 				)
 				embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
-				view = WidokPonownegoWprowadzania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału)
+				view = WidokPonownegoWprowadzania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału, self.szkoła)
 				await interaction.response.defer()
 				await self.wiadomość.edit(embed=embed, view=view)
 				return
@@ -1121,26 +1167,27 @@ class ModalWybierania(discord.ui.Modal):
 					color=discord.Color(0xca4449),
 				)
 				embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
-				view = WidokAkceptacjiSugestii(self.typDanych, identyfikatorSerwera, idealneDopasowania, sugestie, self.lista, self.wiadomość, self.identyfikatorKanału)
+				view = WidokAkceptacjiSugestii(self.typDanych, identyfikatorSerwera, idealneDopasowania, sugestie, self.lista, self.wiadomość, self.identyfikatorKanału, self.szkoła)
 				await interaction.response.defer()
 				await self.wiadomość.edit(embed=embed, view=view)
 				return
 
 			finalne = usuńDuplikaty(idealneDopasowania)
 			kluczFiltru = "wybrane-klasy" if self.typDanych == "klasy" else "wybrani-nauczyciele"
-			await zapiszKluczeSerwera(identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, kluczFiltru: finalne})
+			await zapiszKluczeSerwera(identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, "szkoła": self.szkoła, kluczFiltru: finalne})
 
 			konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
 			kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
-			klasy = ", ".join(re.sub(r'(\d)\s+([A-Z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
+			klasy = ", ".join(re.sub(r'(\d)\s+([A-Za-z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
 			nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
+			identyfikatorSzkoły = konfiguracjaSerwera.get("szkoła")
+			nazwaSzkoły = konfiguracja["szkoły"].get(identyfikatorSzkoły, {}).get("nazwa", identyfikatorSzkoły)
 
 			embed = discord.Embed(
 				title="**Zapisano wprowadzone dane**",
-				description="Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja Twojego serwera została wyświetlona poniżej.",
+				description=f"Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja Twojego serwera dla szkoły **{nazwaSzkoły}** została wyświetlona poniżej.",
 				color=discord.Color(0xca4449)
 			)
-
 			embed.add_field(name="Kanał tekstowy:", value=kanał)
 			embed.add_field(name="Wybrane klasy:", value=klasy)
 			embed.add_field(name="Wybrani nauczyciele:", value=nauczyciele)
@@ -1153,32 +1200,43 @@ class ModalWybierania(discord.ui.Modal):
 				await interaction.response.send_message("Wystąpił błąd podczas przetwarzania danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
 class PrzyciskUczeń(discord.ui.Button):
-	def __init__(self, identyfikatorKanału: str):
+	def __init__(self, identyfikatorKanału: str, szkoła: str):
 		super().__init__(label="Uczeń", style=discord.ButtonStyle.primary)
 		self.identyfikatorKanału = identyfikatorKanału
+		self.szkoła = szkoła
 
 	async def callback(self, interaction: discord.Interaction):
 		try:
-			listaKlas = pobierzListęKlas()
-			await interaction.response.send_modal(ModalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału))
+			listaKlas = pobierzListęKlas(self.szkoła)
+			await interaction.response.send_modal(ModalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału, self.szkoła))
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Uczeń' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Uczeń' dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
 class PrzyciskNauczyciel(discord.ui.Button):
-	def __init__(self, identyfikatorKanału: str):
+	def __init__(self, identyfikatorKanału: str, szkoła: str):
 		super().__init__(label="Nauczyciel", style=discord.ButtonStyle.primary)
 		self.identyfikatorKanału = identyfikatorKanału
+		self.szkoła = szkoła
 
 	async def callback(self, interaction: discord.Interaction):
-		try:
-			listaNauczycieli = konfiguracja.get("lista-nauczycieli", [])
-			await interaction.response.send_modal(ModalWybierania("nauczyciele", listaNauczycieli, interaction.message, self.identyfikatorKanału))
-		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Nauczyciel' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
-			with contextlib.suppress(Exception):
-				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+		if self.szkoła == "7lo-bydgoszcz":
+			embed = discord.Embed(
+				title="**Opcja niedostępna!**",
+				description="Ta opcja nie jest dostępna w Twojej szkole. W razie pytań skontaktuj się z administratorem bota.",
+				color=discord.Color(0xca4449),
+			)
+			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
+			await interaction.response.send_message(embed=embed, ephemeral=True)
+		else:
+			try:
+				listaNauczycieli = ((konfiguracja.get("szkoły") or {}).get(self.szkoła, {}) or {}).get("lista-nauczycieli", [])
+				await interaction.response.send_modal(ModalWybierania("nauczyciele", listaNauczycieli, interaction.message, self.identyfikatorKanału, self.szkoła))
+			except Exception as e:
+				logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Nauczyciel' dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+				with contextlib.suppress(Exception):
+					await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
 class PrzyciskWyczyśćFiltry(discord.ui.Button):
 	def __init__(self):
@@ -1202,16 +1260,17 @@ class PrzyciskWyczyśćFiltry(discord.ui.Button):
 				await interaction.followup.send("Wystąpił błąd podczas przetwarzania danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
 class WidokGłówny(discord.ui.View):
-	def __init__(self, identyfikatorKanału: str):
+	def __init__(self, identyfikatorKanału: str, szkoła: str):
 		super().__init__()
-		self.add_item(PrzyciskUczeń(identyfikatorKanału))
-		self.add_item(PrzyciskNauczyciel(identyfikatorKanału))
+		self.add_item(PrzyciskUczeń(identyfikatorKanału, szkoła))
+		self.add_item(PrzyciskNauczyciel(identyfikatorKanału, szkoła))
 		self.add_item(PrzyciskWyczyśćFiltry())
 
 @bot.tree.command(name="skonfiguruj", description="Skonfiguruj bota, ustawiając kanał tekstowy i filtry zastępstw.")
 @discord.app_commands.guild_only()
-@discord.app_commands.describe(kanał="Kanał tekstowy, na który będą wysyłane powiadomienia z zastępstwami.")
-async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChannel):
+@discord.app_commands.describe(kanał="Kanał tekstowy, na który będą wysyłane powiadomienia z zastępstwami.", szkoła="Szkoła, z której będą pobierane informacje o zastępstwach.")
+@discord.app_commands.choices(szkoła=[discord.app_commands.Choice(name="ZSE Bydgoszcz", value="zse-bydgoszcz"), discord.app_commands.Choice(name="VII LO Bydgoszcz", value="7lo-bydgoszcz")])
+async def skonfiguruj(interaction: discord.Interaction, szkoła: str, kanał: discord.TextChannel):
 	try:
 		if not interaction.user.guild_permissions.administrator:
 			embed = discord.Embed(
@@ -1224,7 +1283,7 @@ async def skonfiguruj(interaction: discord.Interaction, kanał: discord.TextChan
 			logujPolecenia(interaction, success=False, error_message="Brak uprawnień.")
 			return
 
-		view = WidokGłówny(identyfikatorKanału=str(kanał.id))
+		view = WidokGłówny(identyfikatorKanału=str(kanał.id), szkoła=szkoła)
 		embed = discord.Embed(
 			title="**Skonfiguruj filtrowanie zastępstw**",
 			description=("**Jesteś uczniem?**\nAby dostawać powiadomienia z nowymi zastępstwami przypisanymi Twojej klasie, naciśnij przycisk **Uczeń**.\n\n**Jesteś nauczycielem?**\nAby dostawać powiadomienia z nowymi zastępstwami przypisanymi Tobie, naciśnij przycisk **Nauczyciel**.\n\nAby wyczyścić wszystkie ustawione filtry, naciśnij przycisk **Wyczyść filtry**."),
