@@ -135,7 +135,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.0-stable",
+		"wersja": "2.2.1-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
@@ -405,7 +405,7 @@ def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
 	return False
 
 # Wyodrębnienie danych z pobranego pliku strony internetowej
-def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
+def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, listaKlas=None):
 	def bezpiecznyTekst(węzeł):
 		if węzeł is None:
 			return ""
@@ -510,11 +510,22 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None):
 				dopasowaneDoKlasy = dopasujDoKlasy(komórkiWiersza, wybraneKlasy)
 				wyodrębnieniNauczyciele = wyodrębnijNauczycieli(aktualnyNauczyciel, zastępca)
 				dopasowaneDoNauczyciela = dopasujNauczyciela(wyodrębnieniNauczyciele, wybraniNauczyciele)
-				if (wybraneKlasy or wybraniNauczyciele) and (dopasowaneDoKlasy or dopasowaneDoNauczyciela):
-					kluczNauczyciela = aktualnyNauczyciel or ", ".join(wyodrębnieniNauczyciele) or "Ogólne"
+				zastępstwoBezKlasy = False
+				if wybraneKlasy:
+					pełnyTekst = " ".join(komórkiWiersza)
+					if listaKlas:
+						znalezionoKlasy = any(re.search(r"\b" + re.escape(normalizujTekst(klasa)) + r"\b", normalizujTekst(pełnyTekst)) for klasa in listaKlas)
+						zastępstwoBezKlasy = not znalezionoKlasy
+					else:
+						if not re.search(r"\d", pełnyTekst):
+							zastępstwoBezKlasy = True
+				if (wybraneKlasy or wybraniNauczyciele) and (dopasowaneDoKlasy or dopasowaneDoNauczyciela or zastępstwoBezKlasy):
+					domyślnyTytuł = aktualnyNauczyciel or ", ".join(wyodrębnieniNauczyciele) or "Ogólne"
+					kluczNauczyciela = f"{domyślnyTytuł} / Zastępstwa z nieprzypisanymi klasami! (:exclamation:)" if zastępstwoBezKlasy else domyślnyTytuł
 					zgrupowane[kluczNauczyciela].append(tekstWpisówZastępstw)
 
 		wpisyZastępstw = [(nauczyciel, zgrupowane[nauczyciel]) for nauczyciel in zgrupowane if zgrupowane[nauczyciel]]
+		wpisyZastępstw.sort(key=lambda x: 0 if "/ Zastępstwa z nieprzypisanymi klasami! (:exclamation:)" in x[0] else 1)
 
 		if not informacjeDodatkowe:
 			maZastępstwa = czySąZastępstwa(wiersze)
@@ -594,7 +605,8 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 	try:
 		wybraneKlasy = konfiguracjaSerwera.get("wybrane-klasy", [])
 		wybraniNauczyciele = konfiguracjaSerwera.get("wybrani-nauczyciele", [])
-		informacjeDodatkowe, aktualneWpisyZastępstw = wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele)
+		listaKlas = pobierzListęKlas(konfiguracjaSerwera.get("szkoła"))
+		informacjeDodatkowe, aktualneWpisyZastępstw = wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele, listaKlas)
 
 		sumaKontrolnaAktualnychInformacjiDodatkowych = obliczSumęKontrolną(informacjeDodatkowe)
 		sumaKontrolnaAktualnychWpisówZastępstw = obliczSumęKontrolną(aktualneWpisyZastępstw)
