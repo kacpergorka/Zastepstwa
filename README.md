@@ -1,5 +1,7 @@
 # Aktualizacje zastępstw wysyłane na platformie Discord
-> Kod bota przystosowany jest do zastępstw [Zespołu Szkół Elektronicznych w Bydgoszczy](https://zastepstwa.zse.bydgoszcz.pl/) oraz [VII Liceum Ogólnokształcącego w Bydgoszczy](https://www.7lo.bydgoszcz.pl/zastep/zastep.html). Jesteś uczniem tych szkół? [Dodaj bota](https://discord.com/oauth2/authorize?client_id=1278769348822962196&permissions=8&integration_type=0&scope=bot+applications.commands), a następnie ciesz się z nieomijających Ciebie zastępstw. Wszystkie ważne informacje znajdziesz w wiadomości prywatnej wysłanej przez bota.
+[![Discord](https://img.shields.io/badge/Discord-Dołącz%20do%20serwera-5865F2?logo=discord&logoColor=white)](https://discord.gg/f53qc2yZW7) [![Discord](https://img.shields.io/badge/Discord-Dodaj%20bota-5865F2?logo=discord&logoColor=white)](https://discord.com/oauth2/authorize?client_id=1278769348822962196&permissions=8&integration_type=0&scope=bot+applications.commands)
+
+Kod bota przystosowany jest do zastępstw [Zespołu Szkół Elektronicznych w Bydgoszczy](https://zastepstwa.zse.bydgoszcz.pl/) oraz [VII Liceum Ogólnokształcącego w Bydgoszczy](https://www.7lo.bydgoszcz.pl/zastep/zastep.html). Jesteś uczniem tych szkół? [Dodaj bota](https://discord.com/oauth2/authorize?client_id=1278769348822962196&permissions=8&integration_type=0&scope=bot+applications.commands), a następnie ciesz się z nieomijających Ciebie zastępstw. Wszystkie ważne informacje znajdziesz w wiadomości prywatnej wysłanej przez bota.
 
 # Informacje techniczne
 Bot na platformie Discord udostępnia aktualizacje zastępstw, które pobiera ze strony internetowej korzystającej z usługi [Zastępstwa Optivum firmy VULCAN](https://duckduckgo.com/?t=h_&q=Zast%C4%99pstwa+Optivum+firmy+VULCAN&ia=web).
@@ -12,7 +14,7 @@ Jeżeli jesteś uczniem innej szkoły, która tak samo, jak [Zespół Szkół El
 ### Wybór kanału do wysyłania zastępstw
 Bot umożliwia wybranie interesującej Ciebie szkoły oraz dedykowanego kanału tekstowego, na który będą wysyłane zastępstwa, przy pomocy polecenia `/skonfiguruj`. Dzięki temu wszystkie istotne informacje trafią do wybranej grupy użytkowników.
 
-![](https://github.com/user-attachments/assets/8a5abae6-f712-45e5-8509-8605897ff96f)
+![](https://github.com/user-attachments/assets/6cf62426-5e60-4f55-bdc2-b40a4e9d82f9)
 
 ### Filtracja zastępstw przystosowana dla uczniów i nauczycieli
 Jedną z najważniejszych funkcji bota jest konfigurowana filtracja zastępstw, w dalszym procesie polecenia `/skonfiguruj`. Podczas konfiguracji możesz wskazać, które klasy lub którzy nauczyciele Cię interesują. Efekt? Otrzymujesz jedynie powiadomienia, które naprawdę Cię dotyczą, bez konieczności przeglądania całej listy zastępstw. Jeżeli wprowadzisz nazwę klasy lub nazwisko z błędem, bot zaproponuje najbardziej prawdopodobne poprawne dopasowania.
