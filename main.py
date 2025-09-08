@@ -135,14 +135,14 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.1-stable",
+		"wersja": "2.2.2-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
 		"szkoły": {
-			"zse-bydgoszcz": {
-				"nazwa": "ZSE Bydgoszcz",
-				"url": "https://zastepstwa.zse.bydgoszcz.pl",
+			"01": {
+				"nazwa": "Zespół Szkół Przykładowych w Przykładowicach",
+				"url": "https://strona-zastepstw/01.pl",
 				"kodowanie": "iso-8859-2",
 				"lista-klas": {
 					"1": [],
@@ -153,9 +153,9 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 				},
 				"lista-nauczycieli": []
 			},
-			"7lo-bydgoszcz": {
-				"nazwa": "VII LO Bydgoszcz",
-				"url": "https://7lo.bydgoszcz.pl/zastep/zastep.html",
+			"02": {
+				"nazwa": "LXVII Liceum Ogólnokształcące w Przykładowicach",
+				"url": "https://strona-zastepstw/02.pl",
 				"kodowanie": "iso-8859-2",
 				"lista-klas": {
 					"1": [],
@@ -563,12 +563,12 @@ async def sprawdźAktualizacje():
 			for identyfikatorSzkoły, daneSzkoły in szkoły.items():
 				url = (daneSzkoły or {}).get("url")
 				if not url:
-					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły '{identyfikatorSzkoły}' w pliku konfiguracyjnym. Pomijanie pobierania.")
+					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły o ID '{identyfikatorSzkoły}' w pliku konfiguracyjnym. Pomijanie pobierania.")
 					continue
 
 				zawartośćStrony = await pobierzZawartośćStrony(url, kodowanie=(daneSzkoły or {}).get("kodowanie"))
 				if zawartośćStrony is None:
-					logiKonsoli.warning(f"Nie udało się pobrać zawartości strony dla szkoły '{identyfikatorSzkoły}'. Pomijanie aktualizacji.")
+					logiKonsoli.warning(f"Nie udało się pobrać zawartości strony dla szkoły o ID '{identyfikatorSzkoły}'. Pomijanie aktualizacji.")
 					continue
 
 				serweryDoSprawdzenia = [int(identyfikatorSerwera) for identyfikatorSerwera, konfiguracjaSerwera in serwery.items() if (konfiguracjaSerwera or {}).get("szkoła") == identyfikatorSzkoły]
@@ -1104,8 +1104,8 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 		nazwaSzkoły = konfiguracja["szkoły"].get(identyfikatorSzkoły, {}).get("nazwa", identyfikatorSzkoły)
 
 		embed = discord.Embed(
-			title="**Zapisano wprowadzone dane**",
-			description=f"Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja Twojego serwera dla szkoły **{nazwaSzkoły}** została wyświetlona poniżej.",
+			title="**Zapisano wprowadzone dane!**",
+			description=f"Aktualna konfiguracja Twojego serwera dla szkoły **{nazwaSzkoły}** została wyświetlona poniżej.",
 			color=discord.Color(0xca4449)
 		)
 		embed.add_field(name="Kanał tekstowy:", value=kanał)
@@ -1196,8 +1196,8 @@ class ModalWybierania(discord.ui.Modal):
 			nazwaSzkoły = konfiguracja["szkoły"].get(identyfikatorSzkoły, {}).get("nazwa", identyfikatorSzkoły)
 
 			embed = discord.Embed(
-				title="**Zapisano wprowadzone dane**",
-				description=f"Wprowadzone dane zostały dodane do konfiguracji. Aktualna konfiguracja Twojego serwera dla szkoły **{nazwaSzkoły}** została wyświetlona poniżej.",
+				title="**Zapisano wprowadzone dane!**",
+				description=f"Aktualna konfiguracja Twojego serwera dla szkoły **{nazwaSzkoły}** została wyświetlona poniżej.",
 				color=discord.Color(0xca4449)
 			)
 			embed.add_field(name="Kanał tekstowy:", value=kanał)
@@ -1218,22 +1218,8 @@ class PrzyciskUczeń(discord.ui.Button):
 		self.szkoła = szkoła
 
 	async def callback(self, interaction: discord.Interaction):
-		try:
-			listaKlas = pobierzListęKlas(self.szkoła)
-			await interaction.response.send_modal(ModalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału, self.szkoła))
-		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Uczeń' dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
-			with contextlib.suppress(Exception):
-				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
-
-class PrzyciskNauczyciel(discord.ui.Button):
-	def __init__(self, identyfikatorKanału: str, szkoła: str):
-		super().__init__(label="Nauczyciel", style=discord.ButtonStyle.primary)
-		self.identyfikatorKanału = identyfikatorKanału
-		self.szkoła = szkoła
-
-	async def callback(self, interaction: discord.Interaction):
-		if self.szkoła == "7lo-bydgoszcz":
+		listaKlas = pobierzListęKlas(self.szkoła)
+		if listaKlas == []:
 			embed = discord.Embed(
 				title="**Opcja niedostępna!**",
 				description="Ta opcja nie jest dostępna w Twojej szkole. W razie pytań skontaktuj się z administratorem bota.",
@@ -1243,7 +1229,30 @@ class PrzyciskNauczyciel(discord.ui.Button):
 			await interaction.response.send_message(embed=embed, ephemeral=True)
 		else:
 			try:
-				listaNauczycieli = ((konfiguracja.get("szkoły") or {}).get(self.szkoła, {}) or {}).get("lista-nauczycieli", [])
+				await interaction.response.send_modal(ModalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału, self.szkoła))
+			except Exception as e:
+				logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Uczeń' dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+				with contextlib.suppress(Exception):
+					await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
+
+class PrzyciskNauczyciel(discord.ui.Button):
+	def __init__(self, identyfikatorKanału: str, szkoła: str):
+		super().__init__(label="Nauczyciel", style=discord.ButtonStyle.primary)
+		self.identyfikatorKanału = identyfikatorKanału
+		self.szkoła = szkoła
+
+	async def callback(self, interaction: discord.Interaction):
+		listaNauczycieli = ((konfiguracja.get("szkoły") or {}).get(self.szkoła, {}) or {}).get("lista-nauczycieli", [])
+		if listaNauczycieli == []:
+			embed = discord.Embed(
+				title="**Opcja niedostępna!**",
+				description="Ta opcja nie jest dostępna w Twojej szkole. W razie pytań skontaktuj się z administratorem bota.",
+				color=discord.Color(0xca4449),
+			)
+			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
+			await interaction.response.send_message(embed=embed, ephemeral=True)
+		else:
+			try:
 				await interaction.response.send_modal(ModalWybierania("nauczyciele", listaNauczycieli, interaction.message, self.identyfikatorKanału, self.szkoła))
 			except Exception as e:
 				logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Nauczyciel' dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
@@ -1281,7 +1290,7 @@ class WidokGłówny(discord.ui.View):
 @bot.tree.command(name="skonfiguruj", description="Skonfiguruj bota, ustawiając kanał tekstowy i filtry zastępstw.")
 @discord.app_commands.guild_only()
 @discord.app_commands.describe(kanał="Kanał tekstowy, na który będą wysyłane powiadomienia z zastępstwami.", szkoła="Szkoła, z której będą pobierane informacje o zastępstwach.")
-@discord.app_commands.choices(szkoła=[discord.app_commands.Choice(name="ZSE Bydgoszcz", value="zse-bydgoszcz"), discord.app_commands.Choice(name="VII LO Bydgoszcz", value="7lo-bydgoszcz")])
+@discord.app_commands.choices(szkoła=[discord.app_commands.Choice(name=nazwaSzkoły.get("nazwa", identyfikatorSzkoły), value=identyfikatorSzkoły) for identyfikatorSzkoły, nazwaSzkoły in (konfiguracja.get("szkoły") or {}).items()])
 async def skonfiguruj(interaction: discord.Interaction, szkoła: str, kanał: discord.TextChannel):
 	try:
 		if not interaction.user.guild_permissions.administrator:
