@@ -1,5 +1,5 @@
 # Aktualizacje zastępstw wysyłane na platformie Discord
-[![Discord](https://img.shields.io/badge/Discord-Dołącz%20do%20serwera-5865F2?logo=discord&logoColor=white)](https://discord.gg/f53qc2yZW7) [![Discord](https://img.shields.io/badge/Discord-Dodaj%20bota-5865F2?logo=discord&logoColor=white)](https://discord.com/oauth2/authorize?client_id=1278769348822962196&permissions=8&integration_type=0&scope=bot+applications.commands)
+[![](https://img.shields.io/badge/Zastępstwa%20Development-Dołącz%20do%20serwera-5865F2?logo=discord&logoColor=white)](https://discord.gg/f53qc2yZW7) [![](https://img.shields.io/badge/Zastępstwa%239138-Dodaj%20bota-5865F2?logo=discord&logoColor=white)](https://discord.com/oauth2/authorize?client_id=1278769348822962196&permissions=8&integration_type=0&scope=bot+applications.commands)
 
 Kod bota przystosowany jest do zastępstw [Zespołu Szkół Elektronicznych w Bydgoszczy](https://zastepstwa.zse.bydgoszcz.pl/) oraz [VII Liceum Ogólnokształcącego w Bydgoszczy](https://www.7lo.bydgoszcz.pl/zastep/zastep.html). Jesteś uczniem tych szkół? [Dodaj bota](https://discord.com/oauth2/authorize?client_id=1278769348822962196&permissions=8&integration_type=0&scope=bot+applications.commands), a następnie ciesz się z nieomijających Ciebie zastępstw. Wszystkie ważne informacje znajdziesz w wiadomości prywatnej wysłanej przez bota.
 
