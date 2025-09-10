@@ -27,6 +27,19 @@ class Zastępstwa(discord.Client):
 			raise
 
 	async def close(self):
+		for atrybut in ("aktualizacje", "koniecRoku"):
+			zadanie = getattr(self, atrybut, None)
+			if zadanie and not zadanie.done():
+				try:
+					zadanie.cancel()
+				except Exception as e:
+					logiKonsoli.exception(f"Wystąpił błąd podczas zatrzymywania zadania: {atrybut}. Więcej informacji: {e}")
+		for atrybut in ("aktualizacje", "koniecRoku"):
+			zadanie = getattr(self, atrybut, None)
+			if zadanie:
+				with contextlib.suppress(asyncio.CancelledError, Exception):
+					await zadanie
+
 		if getattr(self, "połączenieHTTP", None):
 			try:
 				await self.połączenieHTTP.close()
@@ -39,9 +52,21 @@ class Zastępstwa(discord.Client):
 			self.zaczynaCzas = datetime.now()
 			logiKonsoli.info(f"Zalogowano jako {self.user.name} (ID: {self.user.id}).")
 			await self.tree.sync()
-			await self.change_presence(status=discord.Status.online, activity=discord.CustomActivity(name="kacpergorka.com/zastepstwa"))
-			asyncio.create_task(sprawdźAktualizacje())
-			asyncio.create_task(sprawdźKoniecRoku())
+			await self.change_presence(
+				status=discord.Status.online,
+				activity=discord.CustomActivity(name="kacpergorka.com/zastepstwa")
+			)
+			if not getattr(self, "aktualizacje", None) or self.aktualizacje.done():
+				logiKonsoli.info("Uruchomiono bota. Trwa uruchamianie zadania sprawdzającego aktualizacje zastępstw.")
+				self.aktualizacje = asyncio.create_task(sprawdźAktualizacje())
+			else:
+				logiKonsoli.info("Zadanie sprawdzające aktualizacje zastępstw jest już uruchomione. Ponowne uruchomienie zadania zostało pominięte.")
+
+			if not getattr(self, "koniecRoku", None) or self.koniecRoku.done():
+				logiKonsoli.info("Uruchomiono bota. Trwa uruchamianie zadania sprawdzającego datę zakończenia roku szkolnego.")
+				self.koniecRoku = asyncio.create_task(sprawdźKoniecRoku())
+			else:
+				logiKonsoli.info("Zadanie sprawdzające datę zakończenia roku szkolnego jest już uruchomione. Ponowne uruchomienie zadania zostało pominięte.")
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd podczas wywoływania funkcji on_ready. Więcej informacji: {e}")
 
@@ -135,7 +160,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.2-stable",
+		"wersja": "2.2.3-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
@@ -274,14 +299,14 @@ async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
 			logiKonsoli.warning(f"Nie znaleziono konfiguracji serwera o ID {identyfikatorSerwera}. Dane nie zostały usunięte.")
 		snapshot = copy.deepcopy(konfiguracja)
 	await zapiszKonfiguracje(snapshot)
-
-	ścieżkaZasobów = folderDanych / f"{identyfikatorSerwera}.json"
-	if ścieżkaZasobów.exists():
-		try:
-			await asyncio.to_thread(ścieżkaZasobów.unlink)
-			logiKonsoli.info(f"Usunięto plik zasobów: {ścieżkaZasobów}.")
-		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd podczas usuwania pliku zasobów: {ścieżkaZasobów}. Więcej informacji: {e}")
+	for rozszerzenie in (".json", ".json.old", ".json.tmp", ".json.bad"):
+		ścieżkaZasobów = folderDanych / f"{identyfikatorSerwera}{rozszerzenie}" 
+		if ścieżkaZasobów.exists():
+			try:
+				await asyncio.to_thread(ścieżkaZasobów.unlink)
+				logiKonsoli.info(f"Usunięto plik zasobów: {ścieżkaZasobów}.")
+			except Exception as e:
+				logiKonsoli.exception(f"Wystąpił błąd podczas usuwania pliku zasobów: {ścieżkaZasobów}. Więcej informacji: {e}")
 
 # Obliczanie sumy kontrolnej
 def obliczSumęKontrolną(dane):
@@ -302,10 +327,11 @@ def obliczSumęKontrolną(dane):
 async def pobierzZawartośćStrony(url, kodowanie=None):
 	logiKonsoli.debug(f"Pobieranie URL: {url}")
 	try:
-		async with bot.połączenieHTTP.get(url) as response:
-			response.raise_for_status()
-			text = await response.text(encoding=kodowanie, errors="ignore")
-			return BeautifulSoup(text, "html.parser")
+		async with bot.połączenieHTTP.get(url) as odpowiedź:
+			odpowiedź.raise_for_status()
+			tekst = await odpowiedź.text(encoding=kodowanie, errors="ignore")
+			pętla = asyncio.get_event_loop()
+			return await pętla.run_in_executor(None, lambda: BeautifulSoup(tekst, "html.parser"))
 	except asyncio.TimeoutError as e:
 		logiKonsoli.warning(f"Przekroczono czas oczekiwania na połączenie. Więcej informacji: {e}")
 	except aiohttp.ClientError as e:
@@ -411,10 +437,13 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, li
 			return ""
 
 		tmp = BeautifulSoup(str(węzeł), "html.parser")
-		for br in tmp.find_all("br"):
-			br.replace_with(NavigableString("\n"))
-		for tag in tmp.find_all(["nobr", "blink", "span", "font", "b", "i", "u"]):
-			tag.unwrap()
+		try:
+			for br in tmp.find_all("br"):
+				br.replace_with(NavigableString("\n"))
+			for tag in tmp.find_all(["nobr", "blink", "span", "font", "b", "i", "u"]):
+				tag.unwrap()
+		except Exception as e:
+			logiKonsoli.exception(f"Wystąpił błąd podczas rozpakowywania tagów. Więcej informacji: {e}")
 
 		# Normalizacja tekstu
 		tekst = tmp.get_text(separator="")
@@ -717,9 +746,13 @@ async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastęps
 			await ograniczWysyłanie(kanał, embed=embed)
 
 			for tytuł, wpisyZastępstw in aktualneWpisyZastępstw:
+				tekstZastępstw = "\n\n".join(wpisyZastępstw)
+				if "/ Zastępstwa z nieprzypisanymi klasami! (:exclamation:)" in tytuł:
+					tekstZastępstw = tekstZastępstw + "\n\n**Informacja o tej wiadomości:**\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!"
+
 				embed = discord.Embed(
 					title=f"**{tytuł}**",
-					description="\n\n".join(wpisyZastępstw),
+					description=tekstZastępstw,
 					color=discord.Color(0xca4449)
 				)
 				embed.set_footer(text="Każdy nauczyciel, którego dotyczą zastępstwa pasujące do Twoich filtrów, zostanie załączany w oddzielnej wiadomości.")
