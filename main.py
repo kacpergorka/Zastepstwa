@@ -33,13 +33,12 @@ class Zastępstwa(discord.Client):
 				try:
 					zadanie.cancel()
 				except Exception as e:
-					logiKonsoli.exception(f"Wystąpił błąd podczas zatrzymywania zadania: {atrybut}. Więcej informacji: {e}")
+					logiKonsoli.exception(f"Wystąpił błąd podczas zatrzymywania zadania ({atrybut}). Więcej informacji: {e}")
 		for atrybut in ("aktualizacje", "koniecRoku"):
 			zadanie = getattr(self, atrybut, None)
 			if zadanie:
 				with contextlib.suppress(asyncio.CancelledError, Exception):
 					await zadanie
-
 		if getattr(self, "połączenieHTTP", None):
 			try:
 				await self.połączenieHTTP.close()
@@ -160,7 +159,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.3-stable",
+		"wersja": "2.2.4-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
@@ -194,7 +193,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 	}
 	if not path.exists():
 		path.write_text(json.dumps(domyślne, ensure_ascii=False, indent=4), encoding="utf-8")
-		logiKonsoli.warning("Utworzono domyślny config.json. Uzupełnij plik konfiguracyjny.")
+		logiKonsoli.warning("Utworzono domyślny plik konfiguracyjny. Uzupełnij jego zawartość.")
 		return domyślne
 	try:
 		dane = json.loads(path.read_text(encoding="utf-8"))
@@ -204,12 +203,12 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		dane = uporządkuj(dane, domyślne)
 		path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
 		if dane.get("wersja") != domyślne["wersja"]:
-			logiKonsoli.warning(f"Aktualizuję wersję w config.json z {dane.get('wersja')} na {domyślne['wersja']}.")
+			logiKonsoli.warning(f"Aktualizuję wersję w pliku konfiguracyjnym z {dane.get('wersja')} na {domyślne['wersja']}.")
 			dane["wersja"] = domyślne["wersja"]
 			path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
 		return dane
 	except json.JSONDecodeError as e:
-		logiKonsoli.exception(f"Wystąpił błąd podczas wczytywania config.json. Więcej informacji: {e}")
+		logiKonsoli.exception(f"Wystąpił błąd podczas wczytywania pliku konfiguracyjnego. Więcej informacji: {e}")
 		raise
 
 konfiguracja = wczytajKonfiguracje()
@@ -227,7 +226,7 @@ async def zapiszKonfiguracje(konfiguracja):
 					os.remove(str(kopia))
 				os.replace(str(ścieżkaKonfiguracji), str(kopia))
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania kopii .old dla {ścieżkaKonfiguracji}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania kopii w rozszerzeniu .old dla {ścieżkaKonfiguracji}. Więcej informacji: {e}")
 		os.replace(str(tmp), str(ścieżkaKonfiguracji))
 	try:
 		await asyncio.to_thread(zapisz)
@@ -256,7 +255,7 @@ async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
 								os.remove(str(kopia))
 							os.replace(str(ścieżkaPliku), str(kopia))
 					except Exception as e:
-						logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania kopii .old dla {ścieżkaPliku}. Więcej informacji: {e}")
+						logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania kopii w rozszerzeniu .old dla {ścieżkaPliku}. Więcej informacji: {e}")
 					os.replace(str(tmp), str(ścieżkaPliku))
 				await asyncio.to_thread(zapisz)
 				return True
@@ -269,11 +268,11 @@ async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
 						return json.loads(ścieżkaPliku.read_text(encoding="utf-8"))
 					return await asyncio.to_thread(wczytaj)
 				except (json.JSONDecodeError, UnicodeDecodeError) as e:
-					logiKonsoli.exception(f"Wystąpił błąd podczas wczytywania pliku. Więcej informacji: {e}")
+					logiKonsoli.exception(f"Wystąpił błąd podczas wczytywania pliku danych. Więcej informacji: {e}")
 					uszkodzony = ścieżkaPliku.with_suffix(".json.bad")
 					try:
 						await asyncio.to_thread(os.replace, str(ścieżkaPliku), str(uszkodzony))
-						logiKonsoli.exception(f"Uszkodzony plik danych przeniesiony do: {uszkodzony}. Wczytano pustą zawartość.")
+						logiKonsoli.exception(f"Uszkodzony plik danych został przeniesiony do {uszkodzony}. Wczytano pustą zawartość.")
 					except Exception as e:
 						logiKonsoli.exception(f"Wystąpił błąd podczas przenoszenia uszkodzonego pliku danych. Więcej informacji: {e}")
 					return {}
@@ -284,7 +283,7 @@ async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
 				try:
 					tmp.unlink()
 				except Exception as e:
-					logiKonsoli.exception(f"Nie udało się usunąć pliku tymczasowego: {tmp}. Więcej informacji: {e}")
+					logiKonsoli.exception(f"Nie udało się usunąć pliku tymczasowego ({tmp}). Więcej informacji: {e}")
 					pass
 			return {}
 
@@ -294,7 +293,7 @@ async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
 		serwery = konfiguracja.setdefault("serwery", {})
 		if str(identyfikatorSerwera) in serwery:
 			del serwery[str(identyfikatorSerwera)]
-			logiKonsoli.info(f"Usunięto serwer o ID {identyfikatorSerwera} z pliku config.json.")
+			logiKonsoli.info(f"Usunięto serwer o ID {identyfikatorSerwera} z pliku konfiguracyjnego.")
 		else:
 			logiKonsoli.warning(f"Nie znaleziono konfiguracji serwera o ID {identyfikatorSerwera}. Dane nie zostały usunięte.")
 		snapshot = copy.deepcopy(konfiguracja)
@@ -304,9 +303,9 @@ async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
 		if ścieżkaZasobów.exists():
 			try:
 				await asyncio.to_thread(ścieżkaZasobów.unlink)
-				logiKonsoli.info(f"Usunięto plik zasobów: {ścieżkaZasobów}.")
+				logiKonsoli.info(f"Usunięto plik zasobów ({ścieżkaZasobów}).")
 			except Exception as e:
-				logiKonsoli.exception(f"Wystąpił błąd podczas usuwania pliku zasobów: {ścieżkaZasobów}. Więcej informacji: {e}")
+				logiKonsoli.exception(f"Wystąpił błąd podczas usuwania pliku zasobów ({ścieżkaZasobów}). Więcej informacji: {e}")
 
 # Obliczanie sumy kontrolnej
 def obliczSumęKontrolną(dane):
@@ -473,7 +472,7 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, li
 		return False
 
 	if zawartośćStrony is None:
-		logiKonsoli.warning("Brak treści pobranej ze strony.")
+		logiKonsoli.warning("Brak treści pobranej ze strony. Zwracanie pustej zawartości.")
 		return "", []
 	if wybraniNauczyciele is None:
 		wybraniNauczyciele = []
@@ -550,11 +549,11 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, li
 							zastępstwoBezKlasy = True
 				if (wybraneKlasy or wybraniNauczyciele) and (dopasowaneDoKlasy or dopasowaneDoNauczyciela or zastępstwoBezKlasy):
 					domyślnyTytuł = aktualnyNauczyciel or ", ".join(wyodrębnieniNauczyciele) or "Ogólne"
-					kluczNauczyciela = f"{domyślnyTytuł} / Zastępstwa z nieprzypisanymi klasami! (:exclamation:)" if zastępstwoBezKlasy else domyślnyTytuł
+					kluczNauczyciela = f"Zastępstwa z nieprzypisanymi klasami!\n{domyślnyTytuł}" if zastępstwoBezKlasy else domyślnyTytuł
 					zgrupowane[kluczNauczyciela].append(tekstWpisówZastępstw)
 
 		wpisyZastępstw = [(nauczyciel, zgrupowane[nauczyciel]) for nauczyciel in zgrupowane if zgrupowane[nauczyciel]]
-		wpisyZastępstw.sort(key=lambda x: 0 if "/ Zastępstwa z nieprzypisanymi klasami! (:exclamation:)" in x[0] else 1)
+		wpisyZastępstw.sort(key=lambda x: 0 if "Zastępstwa z nieprzypisanymi klasami!" in x[0] else 1)
 
 		if not informacjeDodatkowe:
 			maZastępstwa = czySąZastępstwa(wiersze)
@@ -592,12 +591,12 @@ async def sprawdźAktualizacje():
 			for identyfikatorSzkoły, daneSzkoły in szkoły.items():
 				url = (daneSzkoły or {}).get("url")
 				if not url:
-					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły o ID '{identyfikatorSzkoły}' w pliku konfiguracyjnym. Pomijanie pobierania.")
+					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły o ID {identyfikatorSzkoły} w pliku konfiguracyjnym. Pomijanie pobierania.")
 					continue
 
 				zawartośćStrony = await pobierzZawartośćStrony(url, kodowanie=(daneSzkoły or {}).get("kodowanie"))
 				if zawartośćStrony is None:
-					logiKonsoli.warning(f"Nie udało się pobrać zawartości strony dla szkoły o ID '{identyfikatorSzkoły}'. Pomijanie aktualizacji.")
+					logiKonsoli.warning(f"Nie udało się pobrać zawartości strony dla szkoły o ID {identyfikatorSzkoły}. Pomijanie aktualizacji.")
 					continue
 
 				serweryDoSprawdzenia = [int(identyfikatorSerwera) for identyfikatorSerwera, konfiguracjaSerwera in serwery.items() if (konfiguracjaSerwera or {}).get("szkoła") == identyfikatorSzkoły]
@@ -624,7 +623,7 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 	try:
 		kanał = bot.get_channel(int(identyfikatorKanału))
 	except (TypeError, ValueError):
-		logiKonsoli.warning(f"Nieprawidłowy identyfikator kanału '{identyfikatorKanału}' dla serwera o ID {identyfikatorSerwera}.")
+		logiKonsoli.warning(f"Nieprawidłowy identyfikator kanału {identyfikatorKanału} dla serwera o ID {identyfikatorSerwera}.")
 		return
 	if not kanał:
 		logiKonsoli.warning(f"Nie znaleziono kanału o ID {identyfikatorKanału} dla serwera o ID {identyfikatorSerwera}.")
@@ -647,18 +646,18 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 		sumaKontrolnaPoprzednichWpisówZastępstw = poprzednieDane.get("suma-kontrolna-wpisow-zastepstw", "")
 
 		if sumaKontrolnaAktualnychInformacjiDodatkowych != sumaKontrolnaPoprzednichInformacjiDodatkowych or sumaKontrolnaAktualnychWpisówZastępstw != sumaKontrolnaPoprzednichWpisówZastępstw:
-			if sumaKontrolnaAktualnychInformacjiDodatkowych != sumaKontrolnaPoprzednichInformacjiDodatkowych and sumaKontrolnaAktualnychWpisówZastępstw == sumaKontrolnaPoprzednichWpisówZastępstw:
+			if sumaKontrolnaAktualnychWpisówZastępstw == sumaKontrolnaPoprzednichWpisówZastępstw:
 				logiKonsoli.info(f"Treść informacji dodatkowych uległa zmianie dla serwera o ID {identyfikatorSerwera}. Zostaną wysłane zaktualizowane informacje.")
 			else:
 				logiKonsoli.info(f"Treść zastępstw uległa zmianie dla serwera o ID {identyfikatorSerwera}. Zostaną wysłane zaktualizowane zastępstwa.")
 			try:
 				aktualnyCzas = datetime.now(pytz.timezone("Europe/Warsaw")).strftime("%d-%m-%Y %H:%M:%S")
 				if sumaKontrolnaAktualnychInformacjiDodatkowych != sumaKontrolnaPoprzednichInformacjiDodatkowych and sumaKontrolnaAktualnychWpisówZastępstw == sumaKontrolnaPoprzednichWpisówZastępstw:
-					await wyślijAktualizacje(kanał, informacjeDodatkowe, None, aktualnyCzas)
+					await wyślijAktualizacje(kanał, identyfikatorSerwera, informacjeDodatkowe, None, aktualnyCzas)
 				elif sumaKontrolnaAktualnychInformacjiDodatkowych == sumaKontrolnaPoprzednichInformacjiDodatkowych and sumaKontrolnaAktualnychWpisówZastępstw != sumaKontrolnaPoprzednichWpisówZastępstw:
-					await wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas)
+					await wyślijAktualizacje(kanał, identyfikatorSerwera, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas)
 				else:
-					await wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas)
+					await wyślijAktualizacje(kanał, identyfikatorSerwera, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas)
 
 				poprzedniLicznik = int(poprzednieDane.get("licznik-zastepstw", 0))
 				if sumaKontrolnaAktualnychWpisówZastępstw != sumaKontrolnaPoprzednichWpisówZastępstw:
@@ -673,7 +672,7 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 						nazwa = (tytuł or "").strip() or "Ogólne"
 						if normalizujTekst(nazwa) == "ogolne":
 							continue
-						klucz = nazwa.split("/")[0].strip()
+						klucz = nazwa.split("\n", 1)[-1].split("/", 1)[0].strip()
 						statystykiNauczycieli[klucz] = int(statystykiNauczycieli.get(klucz, 0)) + len(wpisy)
 				else:
 					nowyLicznik = poprzedniLicznik
@@ -712,7 +711,7 @@ async def ograniczReagowanie(wiadomość, emoji):
 		await wiadomość.add_reaction(emoji)
 
 # Wysyłanie aktualizacji zastępstw
-async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas):
+async def wyślijAktualizacje(kanał, identyfikatorSerwera, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas):
 	opisTylkoDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Nie znaleziono dla Ciebie żadnych zastępstw pasujących do Twoich filtrów."
 	opisDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością."
 	try:
@@ -735,7 +734,7 @@ async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastęps
 				except Exception:
 					pass
 			else:
-				logiKonsoli.warning("Brak uprawnień do używania @everyone. Wzmianka została pominięta.")
+				logiKonsoli.warning(f"Brak uprawnień do używania @everyone dla serwera o ID {identyfikatorSerwera}. Wzmianka została pominięta.")
 
 			embed = discord.Embed(
 				title="**Zastępstwa zostały zaktualizowane!**",
@@ -747,7 +746,7 @@ async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastęps
 
 			for tytuł, wpisyZastępstw in aktualneWpisyZastępstw:
 				tekstZastępstw = "\n\n".join(wpisyZastępstw)
-				if "/ Zastępstwa z nieprzypisanymi klasami! (:exclamation:)" in tytuł:
+				if "Zastępstwa z nieprzypisanymi klasami!" in tytuł:
 					tekstZastępstw = tekstZastępstw + "\n\n**Informacja o tej wiadomości:**\nTe zastępstwa nie posiadają dołączonej klasy, więc zweryfikuj czy przypadkiem nie dotyczą one Ciebie!"
 
 				embed = discord.Embed(
@@ -755,15 +754,18 @@ async def wyślijAktualizacje(kanał, informacjeDodatkowe, aktualneWpisyZastęps
 					description=tekstZastępstw,
 					color=discord.Color(0xca4449)
 				)
-				embed.set_footer(text="Każdy nauczyciel, którego dotyczą zastępstwa pasujące do Twoich filtrów, zostanie załączany w oddzielnej wiadomości.")
+				if not "Zastępstwa z nieprzypisanymi klasami!" in tytuł:
+					embed.set_footer(text="Każdy nauczyciel, którego dotyczą zastępstwa pasujące do Twoich filtrów, zostanie załączany w oddzielnej wiadomości.")
+				else:
+					embed.set_footer(text="Każdy nauczyciel, którego dotyczą zastępstwa z nieprzypisanymi klasami, zostanie załączany w oddzielnej wiadomości.")
 				ostatniaWiadomość = await ograniczWysyłanie(kanał, embed=embed)
 
-		if ostatniaWiadomość:
+		if ostatniaWiadomość and not "Zastępstwa z nieprzypisanymi klasami!" in tytuł:
 			await ograniczReagowanie(ostatniaWiadomość, "❤️")
 	except discord.DiscordException as e:
-		logiKonsoli.exception(f"Wystąpił błąd podczas wysyłania wiadomości. Więcej informacji: {e}")
+		logiKonsoli.exception(f"Wystąpił błąd podczas wysyłania wiadomości dla serwera o ID {identyfikatorSerwera}. Więcej informacji: {e}")
 	except Exception as e:
-		logiKonsoli.exception(f"Wystąpił nieoczekiwany błąd podczas wysyłania wiadomości. Więcej informacji: {e}")
+		logiKonsoli.exception(f"Wystąpił nieoczekiwany błąd podczas wysyłania wiadomości dla serwera o ID {identyfikatorSerwera}. Więcej informacji: {e}")
 
 # Sprawdzanie daty zakończenia roku szkolnego w celu wysłania rocznych statystyk
 async def sprawdźKoniecRoku():
@@ -774,7 +776,7 @@ async def sprawdźKoniecRoku():
 				dataZakończeniaRoku = (konfiguracja.get("koniec-roku-szkolnego") or "").strip()
 				serwery = list((konfiguracja.get("serwery", {}) or {}).keys())
 			if not dataZakończeniaRoku:
-				logiKonsoli.warning("Nie ustawiono daty zakończenia roku szkolnego w pliku config.json. Uzupełnij plik konfiguracyjny.")
+				logiKonsoli.warning("Nie ustawiono daty zakończenia roku szkolnego w pliku konfiguracyjnym. Uzupełnij brakujące dane.")
 				await asyncio.sleep(3600)
 				continue
 
@@ -786,7 +788,7 @@ async def sprawdźKoniecRoku():
 				except ValueError:
 					continue
 			if daneCzasu is None:
-				logiKonsoli.error(f"Niepoprawny format daty zakończenia roku szkolnego: {dataZakończeniaRoku}. Oczekiwane formaty: YYYY-MM-DD lub YYYY-MM-DD HH:MM:SS.")
+				logiKonsoli.error(f"Niepoprawny format daty zakończenia roku szkolnego w pliku konfiguracyjnyn ({dataZakończeniaRoku}). Oczekiwane formaty: YYYY-MM-DD lub YYYY-MM-DD HH:MM:SS.")
 				await asyncio.sleep(3600)
 				continue
 			if len(dataZakończeniaRoku) == 10:
@@ -833,7 +835,7 @@ async def sprawdźKoniecRoku():
 								except Exception:
 									pass
 							else:
-								logiKonsoli.warning("Brak uprawnień do używania @everyone. Wzmianka została pominięta.")
+								logiKonsoli.warning(f"Brak uprawnień do używania @everyone dla serwera o ID {identyfikatorSerwera}. Wzmianka została pominięta.")
 
 							embed = discord.Embed(
 								title="**Podsumowanie roku szkolnego!**",
@@ -860,7 +862,7 @@ async def sprawdźKoniecRoku():
 								except Exception:
 									pass
 							else:
-								logiKonsoli.warning("Brak uprawnień do używania @everyone. Wzmianka została pominięta.")
+								logiKonsoli.warning(f"Brak uprawnień do używania @everyone dla serwera {identyfikatorSerwera}. Wzmianka została pominięta.")
 
 							embed = discord.Embed(
 								title="**Podsumowanie roku szkolnego!**",
@@ -925,14 +927,14 @@ async def on_guild_join(guild):
 				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
 				await dodający.send(embed=embed)
 				dostarczoneWiadomości += 1
-				logiKonsoli.info(f"Wiadomość z instrukcjami została wysłana do {dodający.name}, który dodał bota na serwer {guild.name}.")
+				logiKonsoli.info(f"Wiadomość z instrukcjami została wysłana do {dodający.name} o ID {dodający.id}, który dodał bota na serwer {guild.name} o ID {guild.id}.")
 				return
 			except discord.Forbidden as e:
-				logiKonsoli.warning(f"Nie można wysłać wiadomości do {dodający.name}, który dodał bota na serwer {guild.name}. Więcej informacji: {e}")
+				logiKonsoli.warning(f"Nie można wysłać wiadomości do {dodający.name} o ID {dodający.id}, który dodał bota na serwer {guild.name} o ID {guild.id}. Więcej informacji: {e}")
 	except discord.Forbidden:
-		logiKonsoli.warning(f"Brak uprawnień do odczytu logów audytu na serwerze {guild.name}.")
+		logiKonsoli.warning(f"Brak uprawnień do odczytu logów audytu na serwerze {guild.name} o ID {guild.id}.")
 	except Exception as e:
-		logiKonsoli.exception(f"Wystąpił błąd przy próbie odczytu logów audytu na serwerze {guild.name}. Więcej informacji: {e}")
+		logiKonsoli.exception(f"Wystąpił błąd przy próbie odczytu logów audytu na serwerze {guild.name} o ID {guild.id}. Więcej informacji: {e}")
 
 	if dostarczoneWiadomości == 0:
 		kanał = guild.system_channel or next((kanał for kanał in guild.text_channels if kanał.permissions_for(guild.me).send_messages), None)
@@ -945,9 +947,9 @@ async def on_guild_join(guild):
 				)
 				embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
 				await ograniczWysyłanie(kanał, embed=embed)
-				logiKonsoli.info(f"Wiadomość z instrukcjami została wysłana na kanał #{kanał.name} o ID {kanał.id} na serwerze {guild.name}, ponieważ żaden administrator nie odebrał prywatnej wiadomości.")
+				logiKonsoli.info(f"Wiadomość z instrukcjami została wysłana na kanał #{kanał.name} o ID {kanał.id} na serwerze {guild.name} o ID {guild.id}, ponieważ żaden administrator nie odebrał prywatnej wiadomości.")
 			except discord.DiscordException as e:
-				logiKonsoli.exception(f"Nie można wysłać wiadomości na serwer {guild.name}. Więcej informacji: {e}")
+				logiKonsoli.exception(f"Nie można wysłać wiadomości na serwer {guild.name} o ID {guild.id}. Więcej informacji: {e}")
 
 # Polecenie /skonfiguruj
 def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
