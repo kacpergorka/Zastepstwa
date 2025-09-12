@@ -1,6 +1,7 @@
-/Logs/
-/Resources/
-.DS_Store
+*/__pycache__/
+*/logs/
+*/resources/
+*.DS_Store
 *.json
 *.log
 *.tmp
