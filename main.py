@@ -1,3 +1,15 @@
+#
+#
+#    ▄▄▄▄▄▄▄▄     ▄▄       ▄▄▄▄    ▄▄▄▄▄▄▄▄  ▄▄▄▄▄▄▄▄  ▄▄▄▄▄▄      ▄▄▄▄    ▄▄▄▄▄▄▄▄ ▄▄      ▄▄    ▄▄   
+#    ▀▀▀▀▀███    ████    ▄█▀▀▀▀█   ▀▀▀██▀▀▀  ██▀▀▀▀▀▀  ██▀▀▀▀█▄  ▄█▀▀▀▀█   ▀▀▀██▀▀▀ ██      ██   ████  
+#        ██▀     ████    ██▄          ██     ██        ██    ██  ██▄          ██    ▀█▄ ██ ▄█▀   ████  
+#      ▄██▀     ██  ██    ▀████▄      ██     ███████   ██████▀    ▀████▄      ██     ██ ██ ██   ██  ██ 
+#     ▄██       ██████        ▀██     ██     ██        ██             ▀██     ██     ███▀▀███   ██████ 
+#    ███▄▄▄▄▄  ▄██  ██▄  █▄▄▄▄▄█▀     ██     ██▄▄▄▄▄▄  ██        █▄▄▄▄▄█▀     ██     ███  ███  ▄██  ██▄
+#    ▀▀▀▀▀▀▀▀  ▀▀    ▀▀   ▀▀▀▀▀       ▀▀     ▀▀▀▀▀█▀▀  ▀▀         ▀▀▀▀▀       ▀▀     ▀▀▀  ▀▀▀  ▀▀    ▀▀
+#                                                █▄▄                                                   
+#
+
 # Standardowe biblioteki Pythona
 import asyncio, contextlib, copy, difflib, hashlib, json, logging, os, re, signal, sys, unicodedata
 from collections import defaultdict
@@ -8,6 +20,9 @@ from pathlib import Path
 # Zewnętrzne biblioteki
 import aiohttp, discord, pytz
 from bs4 import BeautifulSoup, NavigableString
+
+# Wewnętrzne importy
+from assets.ascii import ascii
 
 # Zainicjowanie klasy klienta discorda
 class Zastępstwa(discord.Client):
@@ -49,23 +64,23 @@ class Zastępstwa(discord.Client):
 	async def on_ready(self):
 		try:
 			self.zaczynaCzas = datetime.now()
-			logiKonsoli.info(f"Zalogowano jako {self.user.name} (ID: {self.user.id}).")
+			logiKonsoli.info(ascii)
+			logiKonsoli.info(f"Zalogowano jako {self.user.name} (ID: {self.user.id}). Czekaj...")
 			await self.tree.sync()
 			await self.change_presence(
 				status=discord.Status.online,
 				activity=discord.CustomActivity(name="kacpergorka.com/zastepstwa")
 			)
 			if not getattr(self, "aktualizacje", None) or self.aktualizacje.done():
-				logiKonsoli.info("Uruchomiono bota. Trwa uruchamianie zadania sprawdzającego aktualizacje zastępstw.")
 				self.aktualizacje = asyncio.create_task(sprawdźAktualizacje())
 			else:
-				logiKonsoli.info("Zadanie sprawdzające aktualizacje zastępstw jest już uruchomione. Ponowne uruchomienie zadania zostało pominięte.")
+				logiKonsoli.info("Zadanie sprawdzające aktualizacje zastępstw jest już uruchomione. Próba ponownego jego uruchomienia została unieważniona.")
 
 			if not getattr(self, "koniecRoku", None) or self.koniecRoku.done():
-				logiKonsoli.info("Uruchomiono bota. Trwa uruchamianie zadania sprawdzającego datę zakończenia roku szkolnego.")
 				self.koniecRoku = asyncio.create_task(sprawdźKoniecRoku())
 			else:
-				logiKonsoli.info("Zadanie sprawdzające datę zakończenia roku szkolnego jest już uruchomione. Ponowne uruchomienie zadania zostało pominięte.")
+				logiKonsoli.info("Zadanie sprawdzające zakończenie roku szkolnego jest już uruchomione. Próba ponownego jego uruchomienia została unieważniona.")
+			logiKonsoli.info(f"Wszystkie zadania zostały poprawnie uruchomione. Enjoy!")
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd podczas wywoływania funkcji on_ready. Więcej informacji: {e}")
 
@@ -92,7 +107,7 @@ class FormatStrefyCzasowej(logging.Formatter):
 
 # Konfigurowanie logowania
 def skonfigurujLogi():
-	folderLogów = Path("Logs")
+	folderLogów = Path("logs")
 	folderLogów.mkdir(exist_ok=True)
 
 	logiKonsoli = logging.getLogger("discord")
@@ -159,7 +174,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.4.1-stable",
+		"wersja": "2.2.4.2-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
@@ -203,7 +218,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		dane = uporządkuj(dane, domyślne)
 		path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
 		if dane.get("wersja") != domyślne["wersja"]:
-			logiKonsoli.warning(f"Aktualizuję wersję w pliku konfiguracyjnym z {dane.get('wersja')} na {domyślne['wersja']}.")
+			logiKonsoli.warning(f"Aktualizuję wersję oprogramowania z {dane.get('wersja')} na {domyślne['wersja']}.")
 			dane["wersja"] = domyślne["wersja"]
 			path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
 		return dane
@@ -234,7 +249,7 @@ async def zapiszKonfiguracje(konfiguracja):
 		logiKonsoli.exception(f"Wystąpił błąd podczas zapisywania pliku konfiguracyjnego. Więcej informacji: {e}")
 
 # Zarządzanie plikami danych serwerów
-folderDanych = Path("Resources")
+folderDanych = Path("resources")
 folderDanych.mkdir(exist_ok=True)
 blokadaPlikuNaSerwer = defaultdict(lambda: asyncio.Lock())
 
@@ -324,7 +339,7 @@ def obliczSumęKontrolną(dane):
 
 # Pobieranie zawartości strony internetowej
 async def pobierzZawartośćStrony(url, kodowanie=None):
-	logiKonsoli.debug(f"Pobieranie URL: {url}")
+	logiKonsoli.debug(f"Pobieranie zawartości strony ({url}).")
 	try:
 		async with bot.połączenieHTTP.get(url) as odpowiedź:
 			odpowiedź.raise_for_status()
