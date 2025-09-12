@@ -159,7 +159,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.4-stable",
+		"wersja": "2.2.4.1-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
@@ -331,8 +331,8 @@ async def pobierzZawartośćStrony(url, kodowanie=None):
 			tekst = await odpowiedź.text(encoding=kodowanie, errors="ignore")
 			pętla = asyncio.get_event_loop()
 			return await pętla.run_in_executor(None, lambda: BeautifulSoup(tekst, "html.parser"))
-	except asyncio.TimeoutError as e:
-		logiKonsoli.warning(f"Przekroczono czas oczekiwania na połączenie. Więcej informacji: {e}")
+	except asyncio.TimeoutError:
+		logiKonsoli.warning(f"Przekroczono czas oczekiwania na połączenie ({url}).")
 	except aiohttp.ClientError as e:
 		logiKonsoli.exception(f"Wystąpił błąd klienta HTTP podczas pobierania strony. Więcej informacji: {e}")
 	except Exception as e:
@@ -586,17 +586,17 @@ async def sprawdźAktualizacje():
 			szkoły = dict((konfiguracja.get("szkoły") or {}).copy())
 			serwery = dict((konfiguracja.get("serwery") or {}).copy())
 		if not szkoły:
-			logiKonsoli.warning("Brak zdefiniowanych szkół w pliku konfiguracyjnym. Pomijanie pobierania.")
+			logiKonsoli.warning("Brak zdefiniowanych szkół w pliku konfiguracyjnym. Uzupełnij brakujące dane i spróbuj ponownie.")
 		else:
 			for identyfikatorSzkoły, daneSzkoły in szkoły.items():
 				url = (daneSzkoły or {}).get("url")
 				if not url:
-					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły o ID {identyfikatorSzkoły} w pliku konfiguracyjnym. Pomijanie pobierania.")
+					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły o ID {identyfikatorSzkoły} w pliku konfiguracyjnym. Uzupełnij brakujące dane i spróbuj ponownie.")
 					continue
 
 				zawartośćStrony = await pobierzZawartośćStrony(url, kodowanie=(daneSzkoły or {}).get("kodowanie"))
 				if zawartośćStrony is None:
-					logiKonsoli.warning(f"Nie udało się pobrać zawartości strony dla szkoły o ID {identyfikatorSzkoły}. Pomijanie aktualizacji.")
+					logiKonsoli.debug(f"Nie udało się pobrać zawartości strony zastępstw szkoły o ID {identyfikatorSzkoły}. Aktualizacja została pominięta.")
 					continue
 
 				serweryDoSprawdzenia = [int(identyfikatorSerwera) for identyfikatorSerwera, konfiguracjaSerwera in serwery.items() if (konfiguracjaSerwera or {}).get("szkoła") == identyfikatorSzkoły]
@@ -776,7 +776,7 @@ async def sprawdźKoniecRoku():
 				dataZakończeniaRoku = (konfiguracja.get("koniec-roku-szkolnego") or "").strip()
 				serwery = list((konfiguracja.get("serwery", {}) or {}).keys())
 			if not dataZakończeniaRoku:
-				logiKonsoli.warning("Nie ustawiono daty zakończenia roku szkolnego w pliku konfiguracyjnym. Uzupełnij brakujące dane.")
+				logiKonsoli.warning("Nie ustawiono daty zakończenia roku szkolnego w pliku konfiguracyjnym. Uzupełnij brakujące dane i spróbuj ponownie.")
 				await asyncio.sleep(3600)
 				continue
 
