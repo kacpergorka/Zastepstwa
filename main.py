@@ -137,21 +137,21 @@ def logujPolecenia(interaction: discord.Interaction, success: bool, error_messag
 	status = "pomyślnie" if success else "niepomyślnie"
 	informacjaBłędu = f" ({error_message})" if error_message else ""
 	opcje = (interaction.data or {}).get("options", []) if interaction and getattr(interaction, "data", None) else []
-	użyteArgumenty = "Użyte argumenty: " + ", ".join(f"{opcja.get('name')} ({opcja.get('value')})" for opcja in opcje) + ". " if opcje else ""
+	użyteArgumenty = "Użyte argumenty: " + ", ".join(f"{opcja.get("name")} ({opcja.get("value")})" for opcja in opcje) + ". " if opcje else ""
 	try:
 		if getattr(interaction, "guild", None):
-			miejsce = (f"na serwerze '{interaction.guild.name}' (ID: {interaction.guild.id}) na kanale '{getattr(interaction.channel, 'name', 'N/A')}' (ID: {getattr(interaction.channel, 'id', 'N/A')}). ")
+			miejsce = (f"na serwerze „{interaction.guild.name}” (ID: {interaction.guild.id}) na kanale tekstowym „#{getattr(interaction.channel, "name", "N/A")}” (ID: {getattr(interaction.channel, "id", "N/A")}). ")
 		else:
 			miejsce = "w wiadomości prywatnej (DM). "
 	except Exception:
 		miejsce = ""
 
 	nazwaPolecenia = getattr(getattr(interaction, "command", None), "name", getattr(interaction, "command_name", "unknown"))
-	użytkownik = f"{getattr(interaction, 'user', 'Unknown')}"
+	użytkownik = f"{getattr(interaction, "user", "Unknown")}"
 	identyfikatorUżytkownika = getattr(getattr(interaction, "user", None), "id", "Unknown")
 	wiadomośćLogu = (
 		f"Użytkownik: {użytkownik} (ID: {identyfikatorUżytkownika}) "
-		f'wywołał polecenie "{nazwaPolecenia}" '
+		f"wywołał polecenie „{nazwaPolecenia}” "
 		f"{miejsce}"
 		f"{użyteArgumenty}"
 		f"Polecenie wykonane {status}.{informacjaBłędu}"
@@ -174,14 +174,14 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.4.2-stable",
+		"wersja": "2.2.5.0-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
 		"szkoły": {
 			"01": {
 				"nazwa": "Zespół Szkół Przykładowych w Przykładowicach",
-				"url": "https://strona-zastepstw/01.pl",
+				"url": "https://kacpergorka.com/zastepstwa/01",
 				"kodowanie": "iso-8859-2",
 				"lista-klas": {
 					"1": [],
@@ -194,7 +194,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 			},
 			"02": {
 				"nazwa": "LXVII Liceum Ogólnokształcące w Przykładowicach",
-				"url": "https://strona-zastepstw/02.pl",
+				"url": "https://kacpergorka.com/zastepstwa/02",
 				"kodowanie": "iso-8859-2",
 				"lista-klas": {
 					"1": [],
@@ -218,7 +218,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		dane = uporządkuj(dane, domyślne)
 		path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
 		if dane.get("wersja") != domyślne["wersja"]:
-			logiKonsoli.warning(f"Aktualizuję wersję oprogramowania z {dane.get('wersja')} na {domyślne['wersja']}.")
+			logiKonsoli.warning(f"Aktualizuję wersję oprogramowania z {dane.get("wersja")} na {domyślne["wersja"]}.")
 			dane["wersja"] = domyślne["wersja"]
 			path.write_text(json.dumps(dane, ensure_ascii=False, indent=4), encoding="utf-8")
 		return dane
@@ -314,7 +314,7 @@ async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
 		snapshot = copy.deepcopy(konfiguracja)
 	await zapiszKonfiguracje(snapshot)
 	for rozszerzenie in (".json", ".json.old", ".json.tmp", ".json.bad"):
-		ścieżkaZasobów = folderDanych / f"{identyfikatorSerwera}{rozszerzenie}" 
+		ścieżkaZasobów = folderDanych / f"{identyfikatorSerwera}{rozszerzenie}"
 		if ścieżkaZasobów.exists():
 			try:
 				await asyncio.to_thread(ścieżkaZasobów.unlink)
@@ -430,7 +430,7 @@ def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
 
 	komórki = komórkiWiersza[:]
 	if len(komórki) > 1 and komórki[1]:
-		komórki[1] = komórki[1].split('-', 1)[0]
+		komórki[1] = komórki[1].split("-", 1)[0]
 
 	tekst = " ".join(komórka or "" for komórka in komórki)
 	tekst = normalizujTekst(tekst)
@@ -696,7 +696,7 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 						statystykiNauczycieli = {}
 
 				noweDane = {
-					"suma-kontrolna-informacji-dodatkowych": sumaKontrolnaAktualnychInformacjiDodatkowych, 
+					"suma-kontrolna-informacji-dodatkowych": sumaKontrolnaAktualnychInformacjiDodatkowych,
 					"suma-kontrolna-wpisow-zastepstw": sumaKontrolnaAktualnychWpisówZastępstw,
 					"licznik-zastepstw": nowyLicznik,
 					"statystyki-nauczycieli": statystykiNauczycieli,
@@ -1112,7 +1112,7 @@ class WidokPonownegoWprowadzania(discord.ui.View):
 		try:
 			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału, self.szkoła))
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class WidokPonownegoWprowadzania) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku „Wprowadź ponownie” (w class WidokPonownegoWprowadzania) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
@@ -1142,13 +1142,13 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 			kluczFiltru = "wybrane-klasy" if self.typDanych == "klasy" else "wybrani-nauczyciele"
 			await zapiszKluczeSerwera(self.identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, "szkoła": self.szkoła, kluczFiltru: finalne})
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Akceptuj sugestie' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku „Akceptuj sugestie” dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas akceptacji danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
 		konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
-		kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
-		klasy = ", ".join(re.sub(r'(\d)\s+([A-Za-z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
+		kanał = f"<#{konfiguracjaSerwera["identyfikator-kanalu"]}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
+		klasy = ", ".join(re.sub(r"(\d)\s+([A-Za-z])", r"\1\2", klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
 		nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
 		identyfikatorSzkoły = konfiguracjaSerwera.get("szkoła")
 		nazwaSzkoły = konfiguracja["szkoły"].get(identyfikatorSzkoły, {}).get("nazwa", identyfikatorSzkoły)
@@ -1169,7 +1169,7 @@ class WidokAkceptacjiSugestii(discord.ui.View):
 		try:
 			await interaction.response.send_modal(ModalWybierania(self.typDanych, self.lista, self.wiadomość, self.identyfikatorKanału, self.szkoła))
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wprowadź ponownie' (w class WidokAkceptacjiSugestii) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku „Wprowadź ponownie” (w class WidokAkceptacjiSugestii) dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
@@ -1239,8 +1239,8 @@ class ModalWybierania(discord.ui.Modal):
 			await zapiszKluczeSerwera(identyfikatorSerwera, {"identyfikator-kanalu": self.identyfikatorKanału, "szkoła": self.szkoła, kluczFiltru: finalne})
 
 			konfiguracjaSerwera = pobierzSłownikSerwera(str(interaction.guild.id))
-			kanał = f"<#{konfiguracjaSerwera['identyfikator-kanalu']}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
-			klasy = ", ".join(re.sub(r'(\d)\s+([A-Za-z])', r'\1\2', klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
+			kanał = f"<#{konfiguracjaSerwera["identyfikator-kanalu"]}>" if konfiguracjaSerwera.get("identyfikator-kanalu") else "Brak"
+			klasy = ", ".join(re.sub(r"(\d)\s+([A-Za-z])", r"\1\2", klasa) for klasa in konfiguracjaSerwera.get("wybrane-klasy", [])) or "Brak"
 			nauczyciele = ", ".join(f"{nauczyciel}" for nauczyciel in konfiguracjaSerwera.get("wybrani-nauczyciele", [])) or "Brak"
 			identyfikatorSzkoły = konfiguracjaSerwera.get("szkoła")
 			nazwaSzkoły = konfiguracja["szkoły"].get(identyfikatorSzkoły, {}).get("nazwa", identyfikatorSzkoły)
@@ -1281,7 +1281,7 @@ class PrzyciskUczeń(discord.ui.Button):
 			try:
 				await interaction.response.send_modal(ModalWybierania("klasy", listaKlas, interaction.message, self.identyfikatorKanału, self.szkoła))
 			except Exception as e:
-				logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Uczeń' dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+				logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku „Uczeń” dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 				with contextlib.suppress(Exception):
 					await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
@@ -1305,7 +1305,7 @@ class PrzyciskNauczyciel(discord.ui.Button):
 			try:
 				await interaction.response.send_modal(ModalWybierania("nauczyciele", listaNauczycieli, interaction.message, self.identyfikatorKanału, self.szkoła))
 			except Exception as e:
-				logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Nauczyciel' dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+				logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku „Nauczyciel” dla użytkownika {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 				with contextlib.suppress(Exception):
 					await interaction.followup.send("Wystąpił błąd podczas otwierania formularza. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
@@ -1326,7 +1326,7 @@ class PrzyciskWyczyśćFiltry(discord.ui.Button):
 			embed.set_footer(text="Stworzone z ❤️ przez Kacpra Górkę!")
 			await interaction.response.edit_message(embed=embed, view=None)
 		except Exception as e:
-			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku 'Wyczyść filtry' dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
+			logiKonsoli.exception(f"Wystąpił błąd po naciśnięciu przycisku „Wyczyść filtry” dla {interaction.user} na serwerze {interaction.guild}. Więcej informacji: {e}")
 			with contextlib.suppress(Exception):
 				await interaction.followup.send("Wystąpił błąd podczas przetwarzania danych. Spróbuj ponownie lub skontaktuj się z administratorem bota.", ephemeral=True)
 
@@ -1503,13 +1503,16 @@ if hasattr(signal, "SIGBREAK"):
 	signal.signal(signal.SIGBREAK, wyłączBota)
 
 # Uruchomienie bota
-if not konfiguracja.get("token"):
-	logiKonsoli.critical("Brak tokena bota. Ustaw token w pliku konfiguracyjnym.")
-	sys.exit(1)
+token = os.getenv("ZASTEPSTWA")
+if not token:
+	token = konfiguracja.get("token")
+	if not token:
+		logiKonsoli.critical("Nie znaleziono tokena bota. Utwórz zmienną środowiskową z zawartością tokena o nazwie „ZASTEPSTWA” lub uzupełnij plik konfiguracyjny.")
+		sys.exit(1)
 try:
-	bot.run(konfiguracja.get("token"))
+	bot.run(token)
 except discord.LoginFailure as e:
 	logiKonsoli.critical(f"Nieprawidłowy token bota. Więcej informacji: {e}")
 	raise
 except Exception as e:
-	logiKonsoli.exception(f"Wystąpił krytyczny błąd uruchomienia bota. Więcej informacji: {e}")
+	logiKonsoli.exception(f"Wystąpił krytyczny błąd podczas uruchamiania bota. Więcej informacji: {e}")
