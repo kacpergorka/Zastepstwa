@@ -11,7 +11,7 @@
 #
 
 # Standardowe biblioteki
-import asyncio, copy
+import asyncio, copy, discord
 
 # Wewnętrzne importy
 from handlers.configuration import (
@@ -21,12 +21,12 @@ from handlers.configuration import (
 )
 from handlers.data import folderDanych
 from handlers.logging import logiKonsoli
-from main import bot
 
 # Usuwanie serwera z konfiguracji po wyjściu bota z serwera
-@bot.event
-async def on_guild_remove(guild):
-	await usuńSerwerZKonfiguracji(guild.id)
+def ustaw(bot: discord.Client):
+	@bot.event
+	async def on_guild_remove(guild):
+		await usuńSerwerZKonfiguracji(guild.id)
 
 # Usuwanie konfiguracji serwera z pliku konfiguracyjnego
 async def usuńSerwerZKonfiguracji(identyfikatorSerwera: int):
