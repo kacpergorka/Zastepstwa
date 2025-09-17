@@ -13,6 +13,7 @@
 # Standardowe biblioteki
 import asyncio, copy, difflib, hashlib, re, unicodedata
 from collections import defaultdict
+from datetime import datetime
 
 # Wewnętrzne importy
 from handlers.configuration import (
@@ -110,6 +111,16 @@ def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
 	serwery[identyfikatorSerwera] = dane
 	return dane
 
+# Usuwanie duplikatów z listy
+def usuńDuplikaty(sekwencja):
+	widziane = set()
+	wynik = []
+	for element in sekwencja:
+		if element not in widziane:
+			wynik.append(element)
+			widziane.add(element)
+	return wynik
+
 # Zapisywanie kluczy wybranego serwera
 async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
 	identyfikatorSerwera = str(identyfikatorSerwera)
@@ -172,16 +183,6 @@ def kluczeNormalizacyjne(tekst: str) -> list[str]:
 	brakSpacji = re.sub(r"\s+", "", tekstNormalizowany)
 	return [tekstNormalizowany, brakSpacji]
 
-# Usuwanie duplikatów z listy
-def usuńDuplikaty(sekwencja):
-	widziane = set()
-	wynik = []
-	for element in sekwencja:
-		if element not in widziane:
-			wynik.append(element)
-			widziane.add(element)
-	return wynik
-
 # Budowanie indeksów wyszukiwania do dopasowania tekstu
 def zbudujIndeks(listaDoDopasowania: list[str]):
 	mapaKluczy = defaultdict(list)
@@ -233,25 +234,6 @@ def pobierzListęKlas(szkoła: str | None = None) -> list[str]:
 		return suroweDane
 	return []
 
-# Liczenie liczby zastępstw
-def policzZastępstwa(aktualneWpisyZastępstw) -> int:
-	if not aktualneWpisyZastępstw:
-		return 0
-	try:
-		return sum(len(wpisy) for _, wpisy in aktualneWpisyZastępstw)
-	except Exception:
-		return 0
-
-# Odmienianie słowa „zastępstwo” w zależności od liczby zastępstw
-def odmieńZastępstwa(licznik: int) -> str:
-	if abs(licznik) == 1:
-		return "zastępstwo"
-	if 11 <= abs(licznik) % 100 <= 14:
-		return "zastępstw"
-	if abs(licznik) % 10 in (2, 3, 4):
-		return "zastępstwa"
-	return "zastępstw"
-
 # Obliczanie sumy kontrolnej
 def obliczSumęKontrolną(dane):
 	if isinstance(dane, str):
@@ -281,3 +263,34 @@ async def ograniczUsuwanie(wiadomość):
 async def ograniczReagowanie(wiadomość, emoji):
 	async with blokadaNaKanał[wiadomość.channel.id]:
 		await wiadomość.add_reaction(emoji)
+
+# Liczenie liczby zastępstw
+def policzZastępstwa(aktualneWpisyZastępstw) -> int:
+	if not aktualneWpisyZastępstw:
+		return 0
+	try:
+		return sum(len(wpisy) for _, wpisy in aktualneWpisyZastępstw)
+	except Exception:
+		return 0
+
+# Odmienianie słowa „zastępstwo” w zależności od liczby zastępstw
+def odmieńZastępstwa(licznik: int) -> str:
+	if abs(licznik) == 1:
+		return "zastępstwo"
+	if 11 <= abs(licznik) % 100 <= 14:
+		return "zastępstw"
+	if abs(licznik) % 10 in (2, 3, 4):
+		return "zastępstwa"
+	return "zastępstw"
+
+# Pobieranie ilości serwerów, na których znajduje się bot
+def pobierzLiczbęSerwerów(bot):
+	return len(bot.guilds)
+
+# Pobieranie nieprzerwanego czasu działania bota
+def pobierzCzasDziałania(bot):
+	czasDziałania = datetime.now() - bot.zaczynaCzas
+	dni, reszta = divmod(czasDziałania.total_seconds(), 86400)
+	godziny, reszta = divmod(reszta, 3600)
+	minuty, sekundy = divmod(reszta, 60)
+	return f"**{int(dni)}** dni, **{int(godziny)}** godz., **{int(minuty)}** min. i **{int(sekundy)}** sek."

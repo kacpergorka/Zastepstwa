@@ -19,6 +19,10 @@ from handlers.logging import (
 	logiKonsoli,
 	logujPolecenia
 )
+from helpers.helpers import (
+	pobierzCzasDziałania,
+	pobierzLiczbęSerwerów
+)
 
 def ustaw(bot: discord.Client):
 	@bot.tree.command(name="informacje", description="Wyświetl najważniejsze informacje dotyczące bota i jego administratorów")
@@ -33,11 +37,11 @@ def ustaw(bot: discord.Client):
 			embed.add_field(name="Wersja bota:", value=wersja)
 			embed.add_field(name="Repozytorium GitHuba:", value=("[kacpergorka/zastepstwa](https://github.com/kacpergorka/zastepstwa)"))
 			embed.add_field(name="Administratorzy bota:", value="[Kacper Górka](https://kacpergorka.com/)")
-			if bot.pobierzLiczbęSerwerów() == 1:
-				embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{bot.pobierzLiczbęSerwerów()}** serwerze."))
+			if pobierzLiczbęSerwerów(bot) == 1:
+				embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{pobierzLiczbęSerwerów(bot)}** serwerze."))
 			else:
-				embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{bot.pobierzLiczbęSerwerów()}** serwerach."))
-			embed.add_field(name="Bot pracuje bez przerwy przez:", value=bot.pobierzCzasDziałania())
+				embed.add_field(name="Liczba serwerów:", value=(f"Bot znajduje się na **{pobierzLiczbęSerwerów(bot)}** serwerach."))
+			embed.add_field(name="Bot pracuje bez przerwy przez:", value=pobierzCzasDziałania(bot))
 			embed.set_footer(text="Projekt licencjonowany na podstawie licencji MIT. Stworzone z ❤️ przez Kacpra Górkę!")
 			await interaction.response.send_message(embed=embed)
 			logujPolecenia(interaction, success=True)

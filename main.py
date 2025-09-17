@@ -16,18 +16,17 @@ from datetime import datetime
 
 # Zewnętrzne biblioteki
 import aiohttp, discord, pytz
-from bs4 import BeautifulSoup
 
 # Wewnętrzne importy
 from assets.ascii import ascii
 from commands import (
-    informacje,
-    skonfiguruj,
-    statystyki
+	informacje,
+	skonfiguruj,
+	statystyki
 )
 from events import (
-    join,
-    remove
+	join,
+	remove
 )
 from handlers.configuration import (
 	blokadaKonfiguracji,
@@ -35,7 +34,10 @@ from handlers.configuration import (
 )
 from handlers.data import zarządzajPlikiemDanych
 from handlers.logging import logiKonsoli
-from handlers.parser import wyodrębnijDane
+from handlers.parser import (
+	pobierzZawartośćStrony,
+	wyodrębnijDane
+)
 from helpers.helpers import (
 	normalizujTekst,
 	obliczSumęKontrolną,
@@ -108,18 +110,6 @@ class Zastępstwa(discord.Client):
 		except Exception as e:
 			logiKonsoli.exception(f"Wystąpił błąd podczas wywoływania funkcji on_ready. Więcej informacji: {e}")
 
-	# Pobieranie ilości serwerów, na których znajduje się bot
-	def pobierzLiczbęSerwerów(self):
-		return len(self.guilds)
-
-	# Pobieranie nieprzerwanego czasu działania bota
-	def pobierzCzasDziałania(self):
-		czasDziałania = datetime.now() - self.zaczynaCzas
-		dni, reszta = divmod(czasDziałania.total_seconds(), 86400)
-		godziny, reszta = divmod(reszta, 3600)
-		minuty, sekundy = divmod(reszta, 60)
-		return f"**{int(dni)}** dni, **{int(godziny)}** godz., **{int(minuty)}** min. i **{int(sekundy)}** sek."
-
 # Konfiguracja uprawnień bota
 intents = discord.Intents.default()
 bot = Zastępstwa(intents=intents)
@@ -130,23 +120,6 @@ skonfiguruj.ustaw(bot)
 statystyki.ustaw(bot)
 join.ustaw(bot)
 remove.ustaw(bot)
-
-# Pobieranie zawartości strony internetowej
-async def pobierzZawartośćStrony(url, kodowanie=None):
-	logiKonsoli.debug(f"Pobieranie zawartości strony ({url}).")
-	try:
-		async with bot.połączenieHTTP.get(url) as odpowiedź:
-			odpowiedź.raise_for_status()
-			tekst = await odpowiedź.text(encoding=kodowanie, errors="ignore")
-			pętla = asyncio.get_event_loop()
-			return await pętla.run_in_executor(None, lambda: BeautifulSoup(tekst, "html.parser"))
-	except asyncio.TimeoutError:
-		logiKonsoli.warning(f"Przekroczono czas oczekiwania na połączenie ({url}).")
-	except aiohttp.ClientError as e:
-		logiKonsoli.exception(f"Wystąpił błąd klienta HTTP podczas pobierania strony. Więcej informacji: {e}")
-	except Exception as e:
-		logiKonsoli.exception(f"Wystąpił błąd podczas pobierania strony. Więcej informacji: {e}")
-	return None
 
 # Sprawdzanie aktualizacji zastępstw
 async def sprawdźAktualizacje():
@@ -164,7 +137,7 @@ async def sprawdźAktualizacje():
 					logiKonsoli.warning(f"Nie ustawiono URL dla szkoły o ID {identyfikatorSzkoły} w pliku konfiguracyjnym. Uzupełnij brakujące dane i spróbuj ponownie.")
 					continue
 
-				zawartośćStrony = await pobierzZawartośćStrony(url, kodowanie=(daneSzkoły or {}).get("kodowanie"))
+				zawartośćStrony = await pobierzZawartośćStrony(bot, url, kodowanie=(daneSzkoły or {}).get("kodowanie"))
 				if zawartośćStrony is None:
 					logiKonsoli.debug(f"Nie udało się pobrać zawartości strony zastępstw szkoły o ID {identyfikatorSzkoły}. Aktualizacja została pominięta.")
 					continue
