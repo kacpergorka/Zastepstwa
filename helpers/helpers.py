@@ -79,6 +79,8 @@ def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
 	komórki = komórkiWiersza[:]
 	if len(komórki) > 1 and komórki[1]:
 		komórki[1] = komórki[1].split("-", 1)[0]
+	if len(komórki) >= 4 and komórki[3]:
+		komórki[3] = re.sub(r"\d+\s*h\s*lek\.?", "", komórki[3], flags=re.IGNORECASE)
 
 	tekst = " ".join(komórka or "" for komórka in komórki)
 	tekst = normalizujTekst(tekst)
