@@ -20,6 +20,15 @@ from bs4 import BeautifulSoup
 
 # Wewnętrzne importy
 from assets.ascii import ascii
+from commands import (
+    informacje,
+    skonfiguruj,
+    statystyki
+)
+from events import (
+    join,
+    remove
+)
 from handlers.configuration import (
 	blokadaKonfiguracji,
 	konfiguracja
@@ -39,6 +48,7 @@ from helpers.helpers import (
 	zwróćNazwyKluczy,
 )
 
+# Domyślne ustawienia, działania i operacje bota
 class Zastępstwa(discord.Client):
 	def __init__(self, *, intents: discord.Intents):
 		super().__init__(intents=intents)
@@ -110,8 +120,16 @@ class Zastępstwa(discord.Client):
 		minuty, sekundy = divmod(reszta, 60)
 		return f"**{int(dni)}** dni, **{int(godziny)}** godz., **{int(minuty)}** min. i **{int(sekundy)}** sek."
 
+# Konfiguracja uprawnień bota
 intents = discord.Intents.default()
 bot = Zastępstwa(intents=intents)
+
+# Import poleceń i eventów do synchronizacji
+informacje.ustaw(bot)
+skonfiguruj.ustaw(bot)
+statystyki.ustaw(bot)
+join.ustaw(bot)
+remove.ustaw(bot)
 
 # Pobieranie zawartości strony internetowej
 async def pobierzZawartośćStrony(url, kodowanie=None):
