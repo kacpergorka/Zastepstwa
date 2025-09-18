@@ -17,7 +17,7 @@ import logging
 # Zewnętrzne biblioteki
 import pytz
 
-# Formatowanie strefy czasowej
+# Format strefy czasowej
 class FormatStrefyCzasowej(logging.Formatter):
 	def formatTime(self, record, datefmt=None):
 		daneCzasu = datetime.fromtimestamp(record.created, pytz.timezone("Europe/Warsaw"))

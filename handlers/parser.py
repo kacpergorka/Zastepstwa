@@ -20,13 +20,11 @@ from bs4 import BeautifulSoup, NavigableString
 # Wewnętrzne importy
 from handlers.logging import logiKonsoli
 from helpers.helpers import (
-	dopasujDoKlasy,
-	dopasujDoNauczyciela,
 	normalizujTekst,
-	wyodrębnijNauczycieli
+	zwróćNazwyKluczy
 )
 
-# Pobieranie zawartości strony internetowej
+# Pobiera zawartość strony internetowej
 async def pobierzZawartośćStrony(bot, url, kodowanie=None):
 	logiKonsoli.debug(f"Pobieranie zawartości strony ({url}).")
 	try:
@@ -43,8 +41,9 @@ async def pobierzZawartośćStrony(bot, url, kodowanie=None):
 		logiKonsoli.exception(f"Wystąpił błąd podczas pobierania strony. Więcej informacji: {e}")
 	return None
 
-# Wyodrębnienie danych z pobranego pliku strony internetowej
+# Wyodrębnia dane z pobranego pliku strony internetowej
 def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, listaKlas=None):
+	# Czyści i normalizuje zawartości pobranego pliku strony internetowej
 	def bezpiecznyTekst(węzeł):
 		if węzeł is None:
 			return ""
@@ -67,12 +66,14 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, li
 		tekst = re.sub(r"\n{3,}", "\n\n", tekst)
 		return tekst.strip("\n ")
 
+	# Sprawdza, czy dana komórka ma przynajmniej jedną interesującą nas klasę
 	def czyKomórkaMaKlasy(komórka, nazwy):
 		klasy = komórka.get("class") or []
 		if isinstance(klasy, str):
 			klasy = [klasy]
 		return any(klasa in nazwy for klasa in klasy)
 
+	# Sprawdza, czy w tabeli HTML istnieje przynajmniej jeden wiersz z realnym zastępstwem
 	def czySąZastępstwa(wszystkieWiersze):
 		nagłówki = {"lekcja", "opis", "zastępca", "uwagi"}
 		for wiersz in wszystkieWiersze:
@@ -83,6 +84,54 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, li
 				jestNagłówek = set(tekst.strip().lower() for tekst in teksty) <= nagłówki
 				if not jestPuste and not jestNagłówek:
 					return True
+		return False
+
+	# Wyciąga nazwiska nauczycieli z nagłówka i treści komórki
+	def wyodrębnijNauczycieli(nazwaNagłówka: str, komórkaZastępcy: str) -> set:
+		wyodrębnieniNauczyciele = set()
+		if nazwaNagłówka and nazwaNagłówka.strip():
+			wyodrębnieniNauczyciele.add(nazwaNagłówka.strip())
+		if komórkaZastępcy and komórkaZastępcy.strip():
+			części = re.split(r"[,\n;/&]| i | I ", komórkaZastępcy)
+			for nauczyciel in części:
+				nauczyciel = nauczyciel.strip()
+				if nauczyciel and nauczyciel != "&nbsp;":
+					wyodrębnieniNauczyciele.add(nauczyciel)
+		return wyodrębnieniNauczyciele
+
+	# Dopasowuje wyodrębnionych nauczycieli do listy filtrowanych
+	def dopasujDoNauczyciela(wyodrębnieniNauczyciele: set, wybraniNauczyciele: list) -> bool:
+		if not wybraniNauczyciele:
+			return False
+		zbiórKluczy = set()
+		for dopasowanie in wyodrębnieniNauczyciele:
+			zbiórKluczy |= zwróćNazwyKluczy(dopasowanie)
+		kluczeWybranychNauczycieli = set()
+		for nauczyciel in wybraniNauczyciele:
+			kluczeWybranychNauczycieli |= zwróćNazwyKluczy(nauczyciel)
+		return bool(zbiórKluczy & kluczeWybranychNauczycieli)
+
+	# Dopasowuje wyodrębnionych z wiersza klas do listy filtrowanych
+	def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
+		if not wybraneKlasy:
+			return False
+
+		komórki = komórkiWiersza[:]
+		if len(komórki) > 1 and komórki[1]:
+			komórki[1] = komórki[1].split("-", 1)[0]
+		if len(komórki) >= 4 and komórki[3]:
+			komórki[3] = re.sub(r"\d+\s*h\s*lek\.?", "", komórki[3], flags=re.IGNORECASE)
+
+		tekst = " ".join(komórka or "" for komórka in komórki)
+		tekst = normalizujTekst(tekst)
+		tekst = re.sub(r"[\(\)]", " ", tekst)
+		tekst = re.sub(r"\s+", " ", tekst)
+		for klasa in wybraneKlasy:
+			normaKlasy = normalizujTekst(klasa)
+			części = normaKlasy.split()
+			wzór = r"\b" + r"\s*".join(map(re.escape, części)) + r"\b"
+			if re.search(wzór, tekst):
+				return True
 		return False
 
 	if zawartośćStrony is None:

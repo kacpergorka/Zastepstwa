@@ -121,7 +121,7 @@ statystyki.ustaw(bot)
 join.ustaw(bot)
 remove.ustaw(bot)
 
-# Sprawdzanie aktualizacji zastępstw
+# Sprawdza aktualizacje zastępstw
 async def sprawdźAktualizacje():
 	await bot.wait_until_ready()
 	while not bot.is_closed():
@@ -149,12 +149,11 @@ async def sprawdźAktualizacje():
 				await asyncio.gather(*zadania, return_exceptions=True)
 		await asyncio.sleep(300)
 
-# Sprawdzanie aktualizacji dla serwerów
+# Sprawdza aktualizacje per serwer
 blokadaNaSerwer = asyncio.Semaphore(3)
 async def sprawdźSerwer(identyfikatorSerwera, zawartośćStrony):
 	async with blokadaNaSerwer:
 		await sprawdźSerwery(identyfikatorSerwera, zawartośćStrony)
-
 async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 	async with blokadaKonfiguracji:
 		konfiguracjaSerwera = (konfiguracja.get("serwery", {}) or {}).get(str(identyfikatorSerwera), {}).copy()
@@ -238,7 +237,7 @@ async def sprawdźSerwery(identyfikatorSerwera, zawartośćStrony):
 	except Exception as e:
 		logiKonsoli.exception(f"Wystąpił błąd podczas przetwarzania aktualizacji dla serwera o ID {identyfikatorSerwera}. Więcej informacji: {e}")
 
-# Wysyłanie aktualizacji zastępstw
+# Wysyła aktualizacje zastępstw
 async def wyślijAktualizacje(kanał, identyfikatorSerwera, informacjeDodatkowe, aktualneWpisyZastępstw, aktualnyCzas):
 	opisTylkoDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Nie znaleziono dla Ciebie żadnych zastępstw pasujących do Twoich filtrów."
 	opisDlaInformacjiDodatkowych = f"**Informacje dodatkowe zastępstw:**\n{informacjeDodatkowe}\n\n**Informacja o tej wiadomości:**\nTa wiadomość zawiera informacje dodatkowe umieszczone nad zastępstwami. Wszystkie zastępstwa znajdują się pod tą wiadomością."
@@ -295,7 +294,7 @@ async def wyślijAktualizacje(kanał, identyfikatorSerwera, informacjeDodatkowe,
 	except Exception as e:
 		logiKonsoli.exception(f"Wystąpił nieoczekiwany błąd podczas wysyłania wiadomości dla serwera o ID {identyfikatorSerwera}. Więcej informacji: {e}")
 
-# Sprawdzanie daty zakończenia roku szkolnego w celu wysłania rocznych statystyk
+# Sprawdza datę zakończenia roku szkolnego (używane w celu wysłania całorocznego podsumowania statystyk zastępstw)
 async def sprawdźKoniecRoku():
 	await bot.wait_until_ready()
 	while not bot.is_closed():
@@ -433,7 +432,7 @@ async def sprawdźKoniecRoku():
 			logiKonsoli.exception(f"Wystąpił nieoczekiwany błąd podczas sprawdzania, czy nastąpiło zakończenie roku szkolnego. Więcej informacji: {e}")
 			await asyncio.sleep(3600)
 
-# Wyłączanie bota
+# Wyłącza bota w bezpieczny sposób
 def wyłączBota(*_):
 	logiKonsoli.info("Przechwycono Ctrl+C. Trwa zatrzymywanie bota...")
 	bot.loop.call_soon_threadsafe(lambda: asyncio.create_task(bot.close()))
@@ -443,7 +442,7 @@ if hasattr(signal, "SIGTERM"):
 if hasattr(signal, "SIGBREAK"):
 	signal.signal(signal.SIGBREAK, wyłączBota)
 
-# Uruchomienie bota
+# Uruchamia bota
 token = os.getenv("ZASTEPSTWA")
 if not token:
 	token = konfiguracja.get("token")

@@ -17,7 +17,7 @@ import discord
 from handlers.logging import logiKonsoli
 from helpers.helpers import ograniczWysyłanie
 
-# Wysyłanie instrukcji konfiguracji administratorom serwera
+# Wysyła instrukcję konfiguracji oprogramowania
 def ustaw(bot: discord.Client):
 	@bot.event
 	async def on_guild_join(guild):

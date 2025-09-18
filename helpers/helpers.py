@@ -22,7 +22,35 @@ from handlers.configuration import (
 	zapiszKonfiguracje
 )
 
-# Normalizacja tekstu
+# Oblicza sumę kontrolną dla wyodrębnionych wpisów zastępstw
+def obliczSumęKontrolną(dane):
+	if isinstance(dane, str):
+		wejście = dane.strip()
+	elif isinstance(dane, list):
+		części = []
+		for tytuł, wpisy in sorted(dane, key=lambda pozycja: pozycja[0]):
+			części.append(tytuł.strip())
+			for wpis in sorted(wpisy):
+				części.append(wpis.strip())
+		wejście = "\n".join(części)
+	else:
+		wejście = str(dane)
+	return hashlib.sha256(wejście.encode("utf-8")).hexdigest()
+
+# Ogranicza interakcje bota w celu obsłużenia rate limitów discorda
+blokadaNaKanał = defaultdict(lambda: asyncio.Lock())
+async def ograniczWysyłanie(kanał, *args, **kwargs):
+	async with blokadaNaKanał[kanał.id]:
+		msg = await kanał.send(*args, **kwargs)
+		return msg
+async def ograniczUsuwanie(wiadomość):
+	async with blokadaNaKanał[wiadomość.channel.id]:
+		await wiadomość.delete()
+async def ograniczReagowanie(wiadomość, emoji):
+	async with blokadaNaKanał[wiadomość.channel.id]:
+		await wiadomość.add_reaction(emoji)
+
+# Normalizuje tekst (używane w celu prawidłowej filtracji)
 def normalizujTekst(tekst: str) -> str:
 	if not tekst or not isinstance(tekst, str):
 		return ""
@@ -33,7 +61,7 @@ def normalizujTekst(tekst: str) -> str:
 	tekst = re.sub(r"\s+", " ", tekst)
 	return tekst.lower()
 
-# Tworzenie zestawu kluczy dopasowań
+# Tworzy zestaw kluczy dopasowań (używane w celu prawidłowej filtracji)
 def zwróćNazwyKluczy(nazwa: str) -> set:
 	norma = normalizujTekst(nazwa)
 	if not norma:
@@ -47,55 +75,7 @@ def zwróćNazwyKluczy(nazwa: str) -> set:
 		klucze.add(f"{części[0][0]}{części[-1]}")
 	return klucze
 
-# Wyciąganie nazwisk nauczycieli z nagłówka i treści komórki
-def wyodrębnijNauczycieli(nazwaNagłówka: str, komórkaZastępcy: str) -> set:
-	wyodrębnieniNauczyciele = set()
-	if nazwaNagłówka and nazwaNagłówka.strip():
-		wyodrębnieniNauczyciele.add(nazwaNagłówka.strip())
-	if komórkaZastępcy and komórkaZastępcy.strip():
-		części = re.split(r"[,\n;/&]| i | I ", komórkaZastępcy)
-		for nauczyciel in części:
-			nauczyciel = nauczyciel.strip()
-			if nauczyciel and nauczyciel != "&nbsp;":
-				wyodrębnieniNauczyciele.add(nauczyciel)
-	return wyodrębnieniNauczyciele
-
-# Dopasowywanie wyodrębnionych nauczycieli do listy filtrowanych
-def dopasujDoNauczyciela(wyodrębnieniNauczyciele: set, wybraniNauczyciele: list) -> bool:
-	if not wybraniNauczyciele:
-		return False
-	zbiórKluczy = set()
-	for dopasowanie in wyodrębnieniNauczyciele:
-		zbiórKluczy |= zwróćNazwyKluczy(dopasowanie)
-	kluczeWybranychNauczycieli = set()
-	for nauczyciel in wybraniNauczyciele:
-		kluczeWybranychNauczycieli |= zwróćNazwyKluczy(nauczyciel)
-	return bool(zbiórKluczy & kluczeWybranychNauczycieli)
-
-# Dopasowywanie wyodrębnionych z wiersza klas do listy filtrowanych
-def dopasujDoKlasy(komórkiWiersza: list, wybraneKlasy: list) -> bool:
-	if not wybraneKlasy:
-		return False
-
-	komórki = komórkiWiersza[:]
-	if len(komórki) > 1 and komórki[1]:
-		komórki[1] = komórki[1].split("-", 1)[0]
-	if len(komórki) >= 4 and komórki[3]:
-		komórki[3] = re.sub(r"\d+\s*h\s*lek\.?", "", komórki[3], flags=re.IGNORECASE)
-
-	tekst = " ".join(komórka or "" for komórka in komórki)
-	tekst = normalizujTekst(tekst)
-	tekst = re.sub(r"[\(\)]", " ", tekst)
-	tekst = re.sub(r"\s+", " ", tekst)
-	for klasa in wybraneKlasy:
-		normaKlasy = normalizujTekst(klasa)
-		części = normaKlasy.split()
-		wzór = r"\b" + r"\s*".join(map(re.escape, części)) + r"\b"
-		if re.search(wzór, tekst):
-			return True
-	return False
-
-# Pobieranie słownika wybranego serwera
+# Pobiera słownik wybranego serwera (używane w poleceniu /skonfiguruj)
 def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
 	identyfikatorSerwera = str(identyfikatorSerwera)
 	serwery = konfiguracja.setdefault("serwery", {})
@@ -111,7 +91,7 @@ def pobierzSłownikSerwera(identyfikatorSerwera: str) -> dict:
 	serwery[identyfikatorSerwera] = dane
 	return dane
 
-# Usuwanie duplikatów z listy
+# Usuwa duplikaty z listy (używane w poleceniu /skonfiguruj)
 def usuńDuplikaty(sekwencja):
 	widziane = set()
 	wynik = []
@@ -121,7 +101,7 @@ def usuńDuplikaty(sekwencja):
 			widziane.add(element)
 	return wynik
 
-# Zapisywanie kluczy wybranego serwera
+# Zapisuje klucze wybranego serwera (używane w poleceniu /skonfiguruj)
 async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
 	identyfikatorSerwera = str(identyfikatorSerwera)
 	lokalneDane = dict(dane or {})
@@ -165,7 +145,7 @@ async def zapiszKluczeSerwera(identyfikatorSerwera: str, dane: dict):
 		snapshot = copy.deepcopy(konfiguracja)
 	await zapiszKonfiguracje(snapshot)
 
-# Czyszczenie filtrów dla danego serwera
+# Czyści filtry dla danego serwera (używane w poleceniu /skonfiguruj)
 async def wyczyśćFiltry(identyfikatorSerwera: str):
 	identyfikatorSerwera = str(identyfikatorSerwera)
 	async with blokadaKonfiguracji:
@@ -177,27 +157,26 @@ async def wyczyśćFiltry(identyfikatorSerwera: str):
 		snapshot = copy.deepcopy(konfiguracja)
 	await zapiszKonfiguracje(snapshot)
 
-# Tworzenie dwóch wersji kluczy normalizacyjnych
-def kluczeNormalizacyjne(tekst: str) -> list[str]:
-	tekstNormalizowany = normalizujTekst(tekst)
-	brakSpacji = re.sub(r"\s+", "", tekstNormalizowany)
-	return [tekstNormalizowany, brakSpacji]
-
-# Budowanie indeksów wyszukiwania do dopasowania tekstu
-def zbudujIndeks(listaDoDopasowania: list[str]):
-	mapaKluczy = defaultdict(list)
-	normalizowaneDoOryginalnych = defaultdict(list)
-	listaNormalizowanych = []
-	for element in listaDoDopasowania:
-		pełnaNorma = re.sub(r"\s+", "", normalizujTekst(element))
-		normalizowaneDoOryginalnych[pełnaNorma].append(element)
-		listaNormalizowanych.append(pełnaNorma)
-		for klucz in kluczeNormalizacyjne(element):
-			mapaKluczy[klucz].append(element)
-	return mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych
-
-# Dopasowywanie wpisanych podczas konfiguracji wpisów do listy w pliku konfiguracyjnym
+# Dopasowuje wpisane podczas konfiguracji wpisy do listy w pliku konfiguracyjnym (używane w poleceniu /skonfiguruj)
 def dopasujWpisyDoListy(wpisy: list[str], listaDoDopasowania: list[str], cutoff: float = 0.6):
+	# Tworzy dwie wersje kluczy normalizacyjnych (używane w celu prawidłowego dopasowania)
+	def kluczeNormalizacyjne(tekst: str) -> list[str]:
+		tekstNormalizowany = normalizujTekst(tekst)
+		brakSpacji = re.sub(r"\s+", "", tekstNormalizowany)
+		return [tekstNormalizowany, brakSpacji]
+
+	# Buduje indeksy wyszukiwania do dopasowania tekstu (używane w celu prawidłowego dopasowania)
+	def zbudujIndeks(listaDoDopasowania: list[str]):
+		mapaKluczy = defaultdict(list)
+		normalizowaneDoOryginalnych = defaultdict(list)
+		listaNormalizowanych = []
+		for element in listaDoDopasowania:
+			pełnaNorma = re.sub(r"\s+", "", normalizujTekst(element))
+			normalizowaneDoOryginalnych[pełnaNorma].append(element)
+			listaNormalizowanych.append(pełnaNorma)
+			for klucz in kluczeNormalizacyjne(element):
+				mapaKluczy[klucz].append(element)
+		return mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych
 	mapaKluczy , normalizowaneDoOryginalnych, listaNormalizowanych = zbudujIndeks(listaDoDopasowania)
 	idealneDopasowania = []
 	sugestie = {}
@@ -225,7 +204,7 @@ def dopasujWpisyDoListy(wpisy: list[str], listaDoDopasowania: list[str], cutoff:
 			nieZnaleziono.append(wpis)
 	return idealneDopasowania, sugestie, nieZnaleziono
 
-# Pobieranie listy klas wybranej szkoły
+# Pobiera listę klas wybranej szkoły (używane w poleceniu /skonfiguruj)
 def pobierzListęKlas(szkoła: str | None = None) -> list[str]:
 	suroweDane = ((konfiguracja.get("szkoły") or {}).get(szkoła, {}) or {}).get("lista-klas", {}) if szkoła else konfiguracja.get("lista-klas", {})
 	if isinstance(suroweDane, dict):
@@ -234,37 +213,7 @@ def pobierzListęKlas(szkoła: str | None = None) -> list[str]:
 		return suroweDane
 	return []
 
-# Obliczanie sumy kontrolnej
-def obliczSumęKontrolną(dane):
-	if isinstance(dane, str):
-		wejście = dane.strip()
-	elif isinstance(dane, list):
-		części = []
-		for tytuł, wpisy in sorted(dane, key=lambda pozycja: pozycja[0]):
-			części.append(tytuł.strip())
-			for wpis in sorted(wpisy):
-				części.append(wpis.strip())
-		wejście = "\n".join(części)
-	else:
-		wejście = str(dane)
-	return hashlib.sha256(wejście.encode("utf-8")).hexdigest()
-
-# Ograniczenie interakcji bota w celu obsłużenia rate limitów discorda
-blokadaNaKanał = defaultdict(lambda: asyncio.Lock())
-async def ograniczWysyłanie(kanał, *args, **kwargs):
-	async with blokadaNaKanał[kanał.id]:
-		msg = await kanał.send(*args, **kwargs)
-		return msg
-
-async def ograniczUsuwanie(wiadomość):
-	async with blokadaNaKanał[wiadomość.channel.id]:
-		await wiadomość.delete()
-
-async def ograniczReagowanie(wiadomość, emoji):
-	async with blokadaNaKanał[wiadomość.channel.id]:
-		await wiadomość.add_reaction(emoji)
-
-# Liczenie liczby zastępstw
+# Liczy liczbę zastępstw (używane w statystykach zastępstw)
 def policzZastępstwa(aktualneWpisyZastępstw) -> int:
 	if not aktualneWpisyZastępstw:
 		return 0
@@ -273,7 +222,7 @@ def policzZastępstwa(aktualneWpisyZastępstw) -> int:
 	except Exception:
 		return 0
 
-# Odmienianie słowa „zastępstwo” w zależności od liczby zastępstw
+# Odmienia słowo „zastępstwo” w zależności od liczby zastępstw (używane w poleceniu /statystyki)
 def odmieńZastępstwa(licznik: int) -> str:
 	if abs(licznik) == 1:
 		return "zastępstwo"
@@ -283,11 +232,11 @@ def odmieńZastępstwa(licznik: int) -> str:
 		return "zastępstwa"
 	return "zastępstw"
 
-# Pobieranie ilości serwerów, na których znajduje się bot
+# Pobiera liczbę serwerów, na których znajduje się bot (używane w poleceniu /informacje)
 def pobierzLiczbęSerwerów(bot):
 	return len(bot.guilds)
 
-# Pobieranie nieprzerwanego czasu działania bota
+# Pobiera czas działania bota bez przerwy (używane w poleceniu /informacje)
 def pobierzCzasDziałania(bot):
 	czasDziałania = datetime.now() - bot.zaczynaCzas
 	dni, reszta = divmod(czasDziałania.total_seconds(), 86400)

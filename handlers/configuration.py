@@ -23,8 +23,9 @@ blokadaKonfiguracji = asyncio.Lock()
 # Ścieżka pliku konfiguracyjnego
 ścieżkaKonfiguracji = Path("config.json")
 
-# Wczytywanie pliku konfiguracyjnego
+# Wczytuje plik konfiguracyjny
 def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
+	# Uporządkowuje dane w pliku konfiguracyjnym zgodnie z domyślną kolejnością
 	def uporządkuj(dane: dict, wzorzec: dict) -> dict:
 		wynik = {}
 		for klucz in wzorzec:
@@ -36,7 +37,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.6.1-stable",
+		"wersja": "2.2.6.2-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},
@@ -90,7 +91,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 
 konfiguracja = wczytajKonfiguracje()
 
-# Zapisywanie pliku konfiguracyjnego
+# Zapisuje plik konfiguracyjny
 async def zapiszKonfiguracje(konfiguracja):
 	tmp = ścieżkaKonfiguracji.with_suffix(".json.tmp")
 	def zapisz():

@@ -21,7 +21,7 @@ import discord
 # Wewnętrzne importy
 from classes.timezone import FormatStrefyCzasowej
 
-# Konfigurowanie logowania
+# Konfiguruje globalne logowanie
 def skonfigurujLogi():
 	folderLogów = Path("logs")
 	folderLogów.mkdir(exist_ok=True)
@@ -48,7 +48,7 @@ def skonfigurujLogi():
 
 logiKonsoli, logiPoleceń = skonfigurujLogi()
 
-# Logowanie poleceń
+# Konfiguruje logowanie poleceń
 def logujPolecenia(interaction: discord.Interaction, success: bool, error_message: str = None):
 	status = "pomyślnie" if success else "niepomyślnie"
 	informacjaBłędu = f" ({error_message})" if error_message else ""

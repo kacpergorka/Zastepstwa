@@ -25,7 +25,7 @@ folderDanych.mkdir(exist_ok=True)
 # Globalna blokada modyfikacji pliku danych per serwer
 blokadaPlikuNaSerwer = defaultdict(lambda: asyncio.Lock())
 
-# Zarządzanie plikami danych serwerów
+# Zarządza plikami danych serwerów
 async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
 	identyfikatorSerwera = str(identyfikatorSerwera)
 	ścieżkaPliku = folderDanych / f"{identyfikatorSerwera}.json"
@@ -33,6 +33,7 @@ async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
 	async with blokadaPlikuNaSerwer[identyfikatorSerwera]:
 		try:
 			if dane is not None:
+				# Zapisuje plik danych wybranego serwera
 				def zapisz():
 					with open(tmp, "w", encoding="utf-8") as plik:
 						json.dump(dane, plik, ensure_ascii=False, indent=4)
@@ -48,6 +49,7 @@ async def zarządzajPlikiemDanych(identyfikatorSerwera, dane=None):
 				await asyncio.to_thread(zapisz)
 				return True
 
+			# Odczytuje plik danych wybranego serwera
 			def odczytaj():
 				return ścieżkaPliku.exists()
 			if await asyncio.to_thread(odczytaj):
