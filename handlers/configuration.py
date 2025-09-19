@@ -37,7 +37,7 @@ def wczytajKonfiguracje(path=ścieżkaKonfiguracji):
 		return wynik
 
 	domyślne = {
-		"wersja": "2.2.6.2-stable",
+		"wersja": "2.2.6.3-stable",
 		"token": "",
 		"koniec-roku-szkolnego": "2026-06-26",
 		"serwery": {},

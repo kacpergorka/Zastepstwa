@@ -212,11 +212,11 @@ def wyodrębnijDane(zawartośćStrony, wybraneKlasy, wybraniNauczyciele=None, li
 							zastępstwoBezKlasy = True
 				if (wybraneKlasy or wybraniNauczyciele) and (dopasowaneDoKlasy or dopasowaneDoNauczyciela or zastępstwoBezKlasy):
 					domyślnyTytuł = aktualnyNauczyciel or ", ".join(wyodrębnieniNauczyciele) or "Ogólne"
-					kluczNauczyciela = f"Zastępstwa z nieprzypisanymi klasami!\n{domyślnyTytuł}" if zastępstwoBezKlasy else domyślnyTytuł
+					kluczNauczyciela = f"Zastępstwa bez dołączonych klas!\n{domyślnyTytuł}" if zastępstwoBezKlasy else domyślnyTytuł
 					zgrupowane[kluczNauczyciela].append(tekstWpisówZastępstw)
 
 		wpisyZastępstw = [(nauczyciel, zgrupowane[nauczyciel]) for nauczyciel in zgrupowane if zgrupowane[nauczyciel]]
-		wpisyZastępstw.sort(key=lambda x: 0 if "Zastępstwa z nieprzypisanymi klasami!" in x[0] else 1)
+		wpisyZastępstw.sort(key=lambda x: 0 if "Zastępstwa bez dołączonych klas!" in x[0] else 1)
 
 		if not informacjeDodatkowe:
 			maZastępstwa = czySąZastępstwa(wiersze)
